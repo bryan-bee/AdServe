@@ -1,0 +1,13 @@
+# Normalize to LF in the repo; scripts end up inside Linux containers,
+# where CRLF line endings break shebangs and entrypoints.
+* text=auto eol=lf
+
+*.sh   text eol=lf
+*.py   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary

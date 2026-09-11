@@ -1,0 +1,25 @@
+# --- Core API (steps 1-2) ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.1
+
+# --- Persistence (step 3) ---
+sqlalchemy==2.0.36
+alembic==1.14.0
+psycopg[binary]==3.2.3
+
+# --- Fake data + simulated traffic (steps 4, 6) ---
+faker==33.1.0
+httpx==0.28.1
+locust==2.32.5
+
+# --- Dev / test ---
+pytest==8.3.4
+pytest-asyncio==0.25.0
+
+# --- Added at their build step ---
+# redis==5.2.1                  # step 7
+# confluent-kafka==2.6.1        # step 8
+# prometheus-fastapi-instrumentator==7.0.0  # step 9
+# scikit-learn==1.6.0           # ranking/CTR work
