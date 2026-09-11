@@ -48,14 +48,15 @@ python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 copy .env.example .env
+uvicorn app.main:app --reload
 ```
 
-The app itself lands in step 2.
+Visit `http://127.0.0.1:8000/health` — should return `{"status": "ok"}`.
 
 ## Build order
 
 1. **Repo scaffold (ADS-001)** — structure above, plus `.gitignore`, `README.md`, `requirements.txt`, `.env.example`. ✅
-2. **Minimal FastAPI app** — `GET /health`, confirming the skeleton runs.
+2. **Minimal FastAPI app (ADS-002)** — `GET /health`, confirming the skeleton runs. ✅
 3. **Postgres + core domain** — Postgres via Docker Compose; campaigns, advertisers, audience-targeting models/endpoints.
 4. **Fake data generation** — scripts to seed fake advertisers, campaigns, content, and users.
 5. **Ad auction/ranking v1** — scored/rule-based auction picking a winning ad for a simulated request.
