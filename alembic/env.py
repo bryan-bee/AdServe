@@ -9,6 +9,9 @@ from app.db.base import Base
 from app.models.advertiser import Advertiser # noqa: F401
 from app.models.campaign import Campaign  # noqa: F401
 from app.models.audience_targeting import AudienceTargeting # noqa: F401
+from app.models.user import User  # noqa: F401
+from app.models.interest import Interest  # noqa: F401
+
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -50,6 +53,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        compare_type=True,
     )
 
     with context.begin_transaction():
@@ -71,7 +75,7 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection, target_metadata=target_metadata, compare_type=True
         )
 
         with context.begin_transaction():

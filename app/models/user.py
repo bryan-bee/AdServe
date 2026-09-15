@@ -1,0 +1,30 @@
+from sqlalchemy import Table, Column, Uuid, ForeignKey, String, Uuid, Date, Enum as SqlEnum
+from app.db.base import Base
+import uuid
+from datetime import date
+
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.db.base import Base
+from app.models.enums import DeviceType
+from app.models.interest import Interest
+
+
+user_interests = Table(
+    "user_interests",
+    Base.metadata,
+    Column("user_id", Uuid, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Column("interest_id", Uuid, ForeignKey("interests.id", ondelete="CASCADE"), primary_key=True),
+)
+
+class User(Base):
+    __tablename__ = "users"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    birthdate: Mapped[date] = mapped_column(Date, nullable=False)
+    country: Mapped[str] = mapped_column(String(2), nullable=False)
+    device_type: Mapped[DeviceType] = mapped_column(
+        SqlEnum(DeviceType, values_callable=lambda enum_cls: [e.value for e in enum_cls]),
+        nullable=False,
+    )
+    interests: Mapped[list[Interest]] = relationship(secondary=user_interests)

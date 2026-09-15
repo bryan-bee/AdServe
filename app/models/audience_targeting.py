@@ -1,13 +1,20 @@
 from app.db.base import Base
 from sqlalchemy.orm import Mapped, mapped_column
-import enum
 from sqlalchemy import Uuid, ForeignKey, Enum as SqlEnum, Integer, String
 from uuid import UUID, uuid4
+from app.models.enums import DeviceType
+from sqlalchemy import Table, Column
+from sqlalchemy.orm import relationship
+from app.models.interest import Interest
 
-class DeviceType(str, enum.Enum):
-    DESKTOP = "desktop"
-    MOBILE = "mobile"
-    TABLET = "tablet"
+
+targeting_interests = Table(
+        "targeting_interests",
+        Base.metadata,
+        Column("targeting_id", Uuid, ForeignKey("audience_targeting.id", ondelete="CASCADE"), primary_key=True),
+        Column("interest_id", Uuid, ForeignKey("interests.id", ondelete="CASCADE"), primary_key=True),
+    )
+
 
 class AudienceTargeting(Base):
     __tablename__ = "audience_targeting"
@@ -19,5 +26,5 @@ class AudienceTargeting(Base):
     )
     min_age: Mapped[int | None] = mapped_column(Integer, nullable=True)
     max_age: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    country: Mapped[str | None] = mapped_column(String, nullable=True)
-
+    country: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    interests: Mapped[list[Interest]] = relationship(secondary=targeting_interests)
