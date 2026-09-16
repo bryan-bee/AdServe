@@ -4,7 +4,7 @@ from app.models.user import User
 from app.services.auction import COST_PER_WIN, filter_eligible_campaigns, record_win
 
 
-def test_filter_eligible_campaigns_excludes_expired_campaign(db):
+def test_filter_eligible_campaigns_excludes_expired_campaign(db, redis_cache):
     user = db.query(User).filter(User.name == "Test User").one()
 
     # The seed data intentionally leaves this campaign's status as "active"
