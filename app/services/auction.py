@@ -1,6 +1,6 @@
 from datetime import datetime, timezone, date
 from decimal import Decimal
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from app.models.campaign import Campaign, CampaignStatus
 from app.models.audience_targeting import AudienceTargeting
 from app.models.impression import Impression
@@ -25,10 +25,21 @@ def get_campaign_candidates(db: Session) -> list[Campaign]:
 
     Returns:
         Campaigns passing the campaign-level checks, unfiltered by user.
+        Eagerly loads each campaign's targeting (and its interests), since
+        matches_targeting/score_campaign access both on every candidate -
+        without this, each access would lazily fire its own query, an N+1
+        problem that gets worse the more candidates there are. Uses
+        joinedload (a single JOIN) rather than selectinload for interests
+        too - at this candidate volume, selectinload's giant `WHERE id IN
+        (...)` parameter list was itself the bottleneck (measured ~300ms),
+        even though the actual data was cheap to fetch (~13ms via a plain
+        JOIN). Some row duplication from the many-to-many join is fine
+        here - SQLAlchemy de-duplicates it back into distinct objects.
     """
     now = datetime.now(timezone.utc)
     return (
         db.query(Campaign)
+        .options(joinedload(Campaign.targeting).joinedload(AudienceTargeting.interests))
         .filter(
             Campaign.status == CampaignStatus.ACTIVE,
             Campaign.start_date <= now,
