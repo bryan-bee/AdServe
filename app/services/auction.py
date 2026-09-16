@@ -3,6 +3,7 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 from app.models.campaign import Campaign, CampaignStatus
 from app.models.audience_targeting import AudienceTargeting
+from app.models.impression import Impression
 from app.models.user import User
 import random
 
@@ -170,17 +171,40 @@ def pick_winner(eligible_campaigns: list[Campaign], user: User) -> Campaign | No
     scores = [score_campaign(c, user) for c in eligible_campaigns]
     return random.choices(eligible_campaigns, weights=scores, k=1)[0]
 
-def record_win(db: Session, campaign: Campaign) -> None:
-    """Record that a campaign won an auction by charging it for the win.
+def record_win(db: Session, campaign: Campaign, user: User) -> Impression:
+    """Record that a campaign won an auction: charge it for the win and
+    log an impression capturing the full decision-time context.
 
     Only ever increments spent - budget is the campaign's fixed original
     allocation and should never be modified after creation, so "remaining
     budget" stays a computed value (budget - spent) rather than something
-    stored and mutated directly.
+    stored and mutated directly. The impression snapshots the user's
+    attributes and interests as they are right now, since a planned future
+    step will make user interests mutable over time - without this
+    snapshot, this historical record would silently become inaccurate
+    once that ships.
 
     Args:
         db: Active database session.
         campaign: The campaign that won and should be charged.
+        user: The user the auction was run for.
+
+    Returns:
+        The newly created Impression row.
     """
     campaign.spent += COST_PER_WIN
+
+    impression = Impression(
+        user_id=user.id,
+        campaign_id=campaign.id,
+        occurred_at=datetime.now(timezone.utc),
+        user_age=compute_age(user.birthdate),
+        user_country=user.country,
+        user_device_type=user.device_type,
+        score=score_campaign(campaign, user),
+        interests=list(user.interests),
+    )
+    db.add(impression)
     db.commit()
+    db.refresh(impression)
+    return impression

@@ -12,6 +12,9 @@ from app.models.audience_targeting import AudienceTargeting  # noqa: F401
 from app.models.campaign import Campaign  # noqa: F401
 from app.models.interest import Interest  # noqa: F401
 from app.models.user import User  # noqa: F401
+from app.models.impression import Impression  # noqa: F401
+from app.models.click import Click  # noqa: F401
+from app.models.conversion import Conversion  # noqa: F401
 
 test_engine = create_engine(settings.test_database_url)
 TestSessionLocal = sessionmaker(bind=test_engine)

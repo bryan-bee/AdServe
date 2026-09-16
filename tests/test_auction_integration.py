@@ -30,9 +30,12 @@ def test_filter_eligible_campaigns_excludes_expired_campaign(db):
 
 
 def test_record_win_increments_spent(db):
+    user = db.query(User).filter(User.name == "Test User").one()
     campaign = db.query(Campaign).first()
     before = campaign.spent
 
-    record_win(db, campaign)
+    impression = record_win(db, campaign, user)
 
     assert campaign.spent == before + COST_PER_WIN
+    assert impression.user_id == user.id
+    assert impression.campaign_id == campaign.id

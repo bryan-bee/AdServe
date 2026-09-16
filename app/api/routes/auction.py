@@ -40,5 +40,5 @@ def run_auction(payload: AuctionRequest, db: Session = Depends(get_db)):
     if winner is None:
         return Response(status_code=204)
 
-    record_win(db, winner)
+    record_win(db, winner, user)
     return AuctionResponse(campaign_id=winner.id, advertiser_id=winner.advertiser_id)
