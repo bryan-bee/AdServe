@@ -7,7 +7,7 @@ import time
 import uuid
 from sqlalchemy.orm import Session, joinedload
 from app.db.redis_client import redis_client
-from app.db.session import SessionLocal
+from app.db.session import BackgroundSessionLocal, SessionLocal
 from app.models.campaign import Campaign, CampaignStatus
 from app.models.audience_targeting import AudienceTargeting
 from app.models.enums import DeviceType
@@ -38,6 +38,15 @@ COST_PER_WIN = Decimal("0.50")
 # simultaneously, making things *worse* than no caching at 100 concurrent
 # users (median latency 11s -> 16s, RPS 7.2 -> 4.89, before this fix).
 CANDIDATES_CACHE_KEY = "auction:campaign_candidates"
+# A second, tiny key holding ONLY the payload's freshness stamp - kept
+# separate from the full ~650KB candidate payload. Every request needs to
+# answer "is my copy still current?", and reading a few bytes to answer
+# that is far cheaper than reading and json-parsing the whole payload just
+# to look at one field inside it. Always written AFTER the main payload
+# (see _query_candidates_and_cache) - never before - so any request that
+# observes this stamp is guaranteed the payload it names is already in
+# Redis. See STUDY_NOTES.md §15.
+CANDIDATES_STAMP_KEY = "auction:campaign_candidates:stamp"
 CANDIDATES_FRESH_SECONDS = 5
 CANDIDATES_MAX_STALE_SECONDS = 30
 CANDIDATES_REFRESH_LOCK_KEY = "auction:campaign_candidates:refresh_lock"
@@ -47,6 +56,27 @@ CANDIDATES_REFRESH_LOCK_TTL_SECONDS = 10
 # while some other concurrent request holds the lock and computes it.
 MISS_WAIT_RETRIES = 10
 MISS_WAIT_INTERVAL_SECONDS = 0.05
+
+# Per-process, in-memory copy of the deserialized candidate list, keyed by
+# the freshness stamp it was built from. Without this, every request redid
+# ~14ms of work in _deserialize_candidates (reading + json-parsing the
+# cached payload, then constructing ~9,300 CandidateCampaign/
+# CandidateTargeting/CandidateInterest objects) even though that work
+# produces an IDENTICAL result for every request served during the same
+# cache generation. Measured to be the dominant source of GIL-holding CPU
+# time under concurrent load - see STUDY_NOTES.md §15.
+#
+# Thread-safety: every request thread reads this same list and the same
+# objects inside it, but nothing downstream ever writes to a candidate's
+# attributes - filter_eligible_campaigns/matches_targeting/score_campaign/
+# pick_winner only ever read (see their docstrings), and record_win never
+# mutates a shared candidate either: it re-fetches a private, real
+# session-attached Campaign via db.get() before writing anything. So
+# concurrent reads of this shared list are safe. Refreshing it (the two
+# dict assignments below) is a plain reference swap - atomic under the
+# GIL - so a thread that already grabbed the old list keeps using it
+# safely to completion; it never sees a half-updated value.
+_local_candidates_cache: dict = {"stamp": None, "candidates": None}
 
 
 # Lightweight, plain-Python stand-ins for Campaign/AudienceTargeting/
@@ -171,27 +201,68 @@ def _query_candidates_and_cache(db: Session) -> list[CandidateCampaign]:
         .all()
     )
     payload = _build_candidates_payload(real_candidates)
+    computed_at = payload["computed_at"]
     redis_client.setex(CANDIDATES_CACHE_KEY, CANDIDATES_MAX_STALE_SECONDS, json.dumps(payload))
-    return _deserialize_candidates(payload["candidates"])
+    # Written after the main payload, deliberately - see CANDIDATES_STAMP_KEY.
+    redis_client.setex(CANDIDATES_STAMP_KEY, CANDIDATES_MAX_STALE_SECONDS, computed_at)
+
+    candidates = _deserialize_candidates(payload["candidates"])
+    # This call just built the canonical copy for this cache generation -
+    # prime this process's memo with it directly instead of making the very
+    # next request pay to re-fetch and re-parse what's already in hand.
+    _local_candidates_cache["stamp"] = computed_at
+    _local_candidates_cache["candidates"] = candidates
+    return candidates
 
 
 def _background_refresh_candidates_cache() -> None:
     """Refresh the cache in the background, assuming the caller ALREADY
     acquired the refresh lock synchronously before spawning this thread.
 
-    Opens its own DB session, since a background thread can't safely reuse
-    the original request's session. The lock is acquired by the caller
-    rather than here deliberately: checking it in the request thread (one
-    cheap Redis call) means we only ever spawn a thread for the single
-    request that actually won the right to refresh, instead of spawning
-    one per stale request and having all but one immediately exit. That
-    wasted thread churn measurably hurt throughput under load."""
-    db = SessionLocal()
+    Opens its own DB session from BackgroundSessionLocal - a separate,
+    dedicated tiny pool from the one request handling uses (see
+    app/db/session.py) - for two reasons: a background thread can't safely
+    reuse the original request's session, AND this thread runs on a raw
+    threading.Thread rather than through anyio's threadpool, so it would
+    otherwise be invisible to the request-concurrency limiter in
+    app/main.py that's sized to exactly match the request-serving pool.
+    Drawing from that same pool let this thread silently exceed what the
+    limiter assumed was reserved, confirmed via a real
+    `sqlalchemy.exc.TimeoutError: QueuePool limit ... reached` under load -
+    see STUDY_NOTES.md §17. The lock is acquired by the caller rather than
+    here deliberately: checking it in the request thread (one cheap Redis
+    call) means we only ever spawn a thread for the single request that
+    actually won the right to refresh, instead of spawning one per stale
+    request and having all but one immediately exit. That wasted thread
+    churn measurably hurt throughput under load."""
+    db = BackgroundSessionLocal()
     try:
         _query_candidates_and_cache(db)
     finally:
         db.close()
         redis_client.delete(CANDIDATES_REFRESH_LOCK_KEY)
+
+
+def _fetch_and_memoize(stamp: str) -> list[CandidateCampaign] | None:
+    """Return this process's deserialized candidate list for the cache
+    generation identified by `stamp`, fetching and parsing the full Redis
+    payload only if this process doesn't already have it memoized.
+
+    Returns None if the stamp exists but the full payload has already
+    expired out of Redis - a narrow TTL-boundary race, since the two keys
+    are set together but not atomically. Callers treat that exactly like a
+    cache miss rather than assuming anything."""
+    if _local_candidates_cache["stamp"] == stamp:
+        return _local_candidates_cache["candidates"]
+
+    cached = redis_client.get(CANDIDATES_CACHE_KEY)
+    if cached is None:
+        return None
+
+    candidates = _deserialize_candidates(json.loads(cached)["candidates"])
+    _local_candidates_cache["stamp"] = stamp
+    _local_candidates_cache["candidates"] = candidates
+    return candidates
 
 
 def get_campaign_candidates(db: Session) -> list[CandidateCampaign]:
@@ -210,22 +281,32 @@ def get_campaign_candidates(db: Session) -> list[CandidateCampaign]:
     past the max-stale window) blocks and computes it inline, same as a
     plain cache would.
 
+    Every hit first reads only the tiny CANDIDATES_STAMP_KEY, not the full
+    payload - and if this process already deserialized that exact stamp
+    (see _local_candidates_cache), returns the memoized list with no
+    further Redis calls or object construction at all. This is what
+    actually fixed the throughput regression documented in
+    STUDY_NOTES.md §14/§15: the earlier per-request rebuild was cheap in
+    isolation but held the GIL long enough, on every single request, to
+    cap concurrent throughput near serial.
+
     Returns:
         Campaigns passing the campaign-level checks, unfiltered by user.
     """
-    cached = redis_client.get(CANDIDATES_CACHE_KEY)
+    stamp = redis_client.get(CANDIDATES_STAMP_KEY)
 
-    if cached is not None:
-        data = json.loads(cached)
-        computed_at = datetime.fromisoformat(data["computed_at"])
-        age_seconds = (datetime.now(timezone.utc) - computed_at).total_seconds()
+    if stamp is not None:
+        candidates = _fetch_and_memoize(stamp)
+        if candidates is not None:
+            computed_at = datetime.fromisoformat(stamp)
+            age_seconds = (datetime.now(timezone.utc) - computed_at).total_seconds()
 
-        if age_seconds > CANDIDATES_FRESH_SECONDS and redis_client.set(
-            CANDIDATES_REFRESH_LOCK_KEY, "1", nx=True, ex=CANDIDATES_REFRESH_LOCK_TTL_SECONDS
-        ):
-            threading.Thread(target=_background_refresh_candidates_cache, daemon=True).start()
+            if age_seconds > CANDIDATES_FRESH_SECONDS and redis_client.set(
+                CANDIDATES_REFRESH_LOCK_KEY, "1", nx=True, ex=CANDIDATES_REFRESH_LOCK_TTL_SECONDS
+            ):
+                threading.Thread(target=_background_refresh_candidates_cache, daemon=True).start()
 
-        return _deserialize_candidates(data["candidates"])
+            return candidates
 
     # Genuine miss - nothing cached at all (cold start, or the max-stale
     # window fully elapsed with no traffic to trigger a refresh). Same
@@ -242,10 +323,11 @@ def get_campaign_candidates(db: Session) -> list[CandidateCampaign]:
 
     for _ in range(MISS_WAIT_RETRIES):
         time.sleep(MISS_WAIT_INTERVAL_SECONDS)
-        cached = redis_client.get(CANDIDATES_CACHE_KEY)
-        if cached is not None:
-            data = json.loads(cached)
-            return _deserialize_candidates(data["candidates"])
+        stamp = redis_client.get(CANDIDATES_STAMP_KEY)
+        if stamp is not None:
+            candidates = _fetch_and_memoize(stamp)
+            if candidates is not None:
+                return candidates
 
     # Still nothing after waiting (the lock holder crashed, or is just
     # unusually slow) - fall back to computing it ourselves rather than
