@@ -21,7 +21,8 @@ def run_auction(payload: AuctionRequest, db: Session = Depends(get_db)):
         payload: The user to run the auction for.
 
     Returns:
-        The winning campaign's id and advertiser id.
+        The winning campaign's id, advertiser id, and the id of the
+        impression that was just logged for it.
 
     Raises:
         HTTPException: 404 if `payload.user_id` doesn't match an existing user.
@@ -40,5 +41,9 @@ def run_auction(payload: AuctionRequest, db: Session = Depends(get_db)):
     if winner is None:
         return Response(status_code=204)
 
-    record_win(db, winner, user)
-    return AuctionResponse(campaign_id=winner.id, advertiser_id=winner.advertiser_id)
+    impression = record_win(db, winner, user)
+    return AuctionResponse(
+        campaign_id=winner.id,
+        advertiser_id=winner.advertiser_id,
+        impression_id=impression.id,
+    )

@@ -15,4 +15,5 @@ class AuctionResponse(BaseModel):
 
     campaign_id: uuid.UUID
     advertiser_id: uuid.UUID
+    impression_id: uuid.UUID
     
