@@ -6,7 +6,7 @@ from sqlalchemy import text, insert
 
 import random
 import uuid
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from app.models.campaign import Campaign, CampaignStatus
@@ -103,12 +103,17 @@ def seed_campaigns(db, advertisers):
             start_date = fake.date_time_between(start_date="-6M", end_date="now", tzinfo=timezone.utc)
             end_date = start_date + timedelta(days=random.randint(14, 90))
 
+            if end_date < datetime.now(timezone.utc):
+                status = CampaignStatus.ENDED
+            else:
+                status = random.choices([CampaignStatus.ACTIVE, CampaignStatus.PAUSED], weights=[85, 15])[0]
+
             campaign = Campaign(
                 advertiser_id=advertiser.id,
                 budget=Decimal(random.randrange(500, 50000)) / 100 * 100,
                 start_date=start_date,
                 end_date=end_date,
-                status=random.choice(list(CampaignStatus)),
+                status=status,
             )
             db.add(campaign)
             campaigns.append(campaign)
@@ -118,8 +123,10 @@ def seed_campaigns(db, advertisers):
 
 def seed_targeting(db, campaigns, interests):
     """Create one AudienceTargeting row per campaign, with randomized
-    age/country/device restrictions (each independently sometimes left
-    blank) and a popularity-weighted set of 0-4 targeted interests."""
+    age/device restrictions (each independently blank ~50% of the time),
+    country restriction (blank ~15% of the time, since geographic
+    targeting is close to universal in real campaigns), and a
+    popularity-weighted set of 0-4 targeted interests."""
     targets = []
     total = len(campaigns)
     for i, campaign in enumerate(campaigns, start=1):
@@ -129,7 +136,7 @@ def seed_targeting(db, campaigns, interests):
             device_type=random.choice(list(DeviceType)) if random.random() < 0.5 else None,
             min_age=random.randint(18, 30) if random.random() < 0.5 else None,
             max_age=random.randint(35, 65) if random.random() < 0.5 else None,
-            country=fake.country_code() if random.random() < 0.5 else None,
+            country=fake.country_code() if random.random() < 0.85 else None,
             interests=weighted_sample_without_replacement(interests, INTEREST_WEIGHT_VALUES, num_interests),
         )
         db.add(targeting)
