@@ -18,8 +18,10 @@ locust==2.32.5
 pytest==8.3.4
 pytest-asyncio==0.25.0
 
+# --- Caching (step 7) ---
+redis==5.2.1
+
 # --- Added at their build step ---
-# redis==5.2.1                  # step 7
 # confluent-kafka==2.6.1        # step 8
 # prometheus-fastapi-instrumentator==7.0.0  # step 9
 # scikit-learn==1.6.0           # ranking/CTR work

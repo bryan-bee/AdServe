@@ -1,9 +1,14 @@
 from datetime import datetime, timezone, date
 from decimal import Decimal
+import json
+import uuid
 from sqlalchemy.orm import Session, joinedload
+from app.db.redis_client import redis_client
 from app.models.campaign import Campaign, CampaignStatus
 from app.models.audience_targeting import AudienceTargeting
+from app.models.enums import DeviceType
 from app.models.impression import Impression
+from app.models.interest import Interest
 from app.models.user import User
 import random
 
@@ -14,6 +19,64 @@ import random
 # drift out of sync.
 COST_PER_WIN = Decimal("0.50")
 
+# Redis cache for get_campaign_candidates. A single shared key, not
+# per-user - the candidate list doesn't depend on who's asking, so every
+# user's auction request during the TTL window can reuse the same cached
+# result. Short TTL: accepts a small, bounded risk of a campaign appearing
+# eligible for slightly longer than it truly has budget for (real ad
+# platforms accept the same tradeoff - "budget pacing" - rather than pay
+# the latency cost of perfectly synchronized real-time budget checks).
+CANDIDATES_CACHE_KEY = "auction:campaign_candidates"
+CANDIDATES_CACHE_TTL_SECONDS = 5
+
+
+def _serialize_candidates(candidates: list[Campaign]) -> str:
+    """Convert candidate Campaigns to a JSON string for storing in Redis.
+    Only includes what matches_targeting/score_campaign/the endpoint
+    actually read - not the full row (budget/spent/dates/status don't
+    matter once a campaign has already passed the SQL filter)."""
+    return json.dumps([
+        {
+            "id": str(c.id),
+            "advertiser_id": str(c.advertiser_id),
+            "targeting": None if c.targeting is None else {
+                "min_age": c.targeting.min_age,
+                "max_age": c.targeting.max_age,
+                "country": c.targeting.country,
+                "device_type": c.targeting.device_type.value if c.targeting.device_type else None,
+                "interest_ids": [str(i.id) for i in c.targeting.interests],
+            },
+        }
+        for c in candidates
+    ])
+
+
+def _deserialize_candidates(data: str) -> list[Campaign]:
+    """Rebuild real (but session-detached) Campaign/AudienceTargeting/
+    Interest objects from cached JSON - the same "construct an ORM object
+    directly, not from a query" pattern already used throughout the test
+    suite. matches_targeting/score_campaign only ever read attributes off
+    these, so they work identically whether an object came from a fresh
+    query or was rebuilt from cache."""
+    candidates = []
+    for row in json.loads(data):
+        targeting = None
+        if row["targeting"] is not None:
+            t = row["targeting"]
+            targeting = AudienceTargeting(
+                min_age=t["min_age"],
+                max_age=t["max_age"],
+                country=t["country"],
+                device_type=DeviceType(t["device_type"]) if t["device_type"] else None,
+                interests=[Interest(id=uuid.UUID(iid)) for iid in t["interest_ids"]],
+            )
+        candidates.append(Campaign(
+            id=uuid.UUID(row["id"]),
+            advertiser_id=uuid.UUID(row["advertiser_id"]),
+            targeting=targeting,
+        ))
+    return candidates
+
 def get_campaign_candidates(db: Session) -> list[Campaign]:
     """Query campaigns eligible on their own attributes alone.
 
@@ -22,6 +85,11 @@ def get_campaign_candidates(db: Session) -> list[Campaign]:
     remaining to cover one more win. Per-user targeting (age/country/
     device/interests) is checked separately in matches_targeting, once
     this candidate list is already narrowed down.
+
+    Checks the Redis cache first (see CANDIDATES_CACHE_KEY/TTL above) -
+    on a hit, returns rebuilt objects without touching Postgres at all.
+    On a miss, runs the real query (eagerly loading targeting/interests -
+    see below) and populates the cache for the next request.
 
     Returns:
         Campaigns passing the campaign-level checks, unfiltered by user.
@@ -36,8 +104,12 @@ def get_campaign_candidates(db: Session) -> list[Campaign]:
         JOIN). Some row duplication from the many-to-many join is fine
         here - SQLAlchemy de-duplicates it back into distinct objects.
     """
+    cached = redis_client.get(CANDIDATES_CACHE_KEY)
+    if cached is not None:
+        return _deserialize_candidates(cached)
+
     now = datetime.now(timezone.utc)
-    return (
+    candidates = (
         db.query(Campaign)
         .options(joinedload(Campaign.targeting).joinedload(AudienceTargeting.interests))
         .filter(
@@ -48,6 +120,8 @@ def get_campaign_candidates(db: Session) -> list[Campaign]:
         )
         .all()
     )
+    redis_client.setex(CANDIDATES_CACHE_KEY, CANDIDATES_CACHE_TTL_SECONDS, _serialize_candidates(candidates))
+    return candidates
 
 
 def compute_age(birthdate: date, today: date | None = None) -> int:
@@ -203,6 +277,13 @@ def record_win(db: Session, campaign: Campaign, user: User) -> Impression:
     Returns:
         The newly created Impression row.
     """
+    # campaign may have been rebuilt from the Redis cache (see
+    # get_campaign_candidates), not loaded from this session - only a
+    # real, session-attached object can be written to and committed.
+    # If it's already in this session's identity map (the normal,
+    # non-cached path), this is a no-op lookup, not a real extra query.
+    campaign = db.get(Campaign, campaign.id)
+
     campaign.spent += COST_PER_WIN
 
     impression = Impression(

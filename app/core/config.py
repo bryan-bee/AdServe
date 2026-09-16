@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     api_port: int = 8000
     database_url: str
     test_database_url: str
+    redis_url: str
 
 
 settings = Settings()
