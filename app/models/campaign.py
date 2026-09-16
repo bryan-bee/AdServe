@@ -1,11 +1,17 @@
 import uuid
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 from sqlalchemy import String, Uuid, ForeignKey, Numeric, DateTime, Enum as SqlEnum
 from decimal import Decimal
 from datetime import datetime
-import enum
+from sqlalchemy import text
+from typing import TYPE_CHECKING
 
+
+import enum
+if TYPE_CHECKING:
+    from app.models.audience_targeting import AudienceTargeting
+    
 class CampaignStatus(str, enum.Enum):
     ACTIVE = "active"
     PAUSED = "paused"
@@ -22,4 +28,7 @@ class Campaign(Base):
         SqlEnum(CampaignStatus, values_callable=lambda enum_cls: [e.value for e in enum_cls]),
         nullable=False,
     )
+    spent: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False, default=Decimal("0"), server_default=text("0"))
+    targeting: Mapped["AudienceTargeting"] = relationship(back_populates="campaign", uselist=False)
+
 
