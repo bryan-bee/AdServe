@@ -1,9 +1,12 @@
 from datetime import datetime, timezone, date
 from decimal import Decimal
 import json
+import threading
+import time
 import uuid
 from sqlalchemy.orm import Session, joinedload
 from app.db.redis_client import redis_client
+from app.db.session import SessionLocal
 from app.models.campaign import Campaign, CampaignStatus
 from app.models.audience_targeting import AudienceTargeting
 from app.models.enums import DeviceType
@@ -19,47 +22,68 @@ import random
 # drift out of sync.
 COST_PER_WIN = Decimal("0.50")
 
-# Redis cache for get_campaign_candidates. A single shared key, not
-# per-user - the candidate list doesn't depend on who's asking, so every
-# user's auction request during the TTL window can reuse the same cached
-# result. Short TTL: accepts a small, bounded risk of a campaign appearing
-# eligible for slightly longer than it truly has budget for (real ad
-# platforms accept the same tradeoff - "budget pacing" - rather than pay
-# the latency cost of perfectly synchronized real-time budget checks).
+# Redis cache for get_campaign_candidates - stale-while-revalidate. A
+# single shared key, not per-user - the candidate list doesn't depend on
+# who's asking. Reads within CANDIDATES_FRESH_SECONDS get the cached data
+# with no extra work. Reads between the fresh and max-stale window still
+# get the cached data immediately (no one waits), but trigger a background
+# refresh so the *next* read is fresh again. Past the max-stale window
+# (nothing refreshed it in time - e.g. a quiet traffic stretch), it's
+# treated as a genuine miss and computed inline, blocking, same as before.
+# The refresh lock prevents multiple concurrent stale reads from each
+# spawning their own redundant background refresh - a real, measured
+# "cache stampede" under Locust load is exactly what this replaced (see
+# STUDY_NOTES.md §13): a plain short TTL meant every ~5s, dozens of
+# concurrent requests all missed at once and all redid the expensive query
+# simultaneously, making things *worse* than no caching at 100 concurrent
+# users (median latency 11s -> 16s, RPS 7.2 -> 4.89, before this fix).
 CANDIDATES_CACHE_KEY = "auction:campaign_candidates"
-CANDIDATES_CACHE_TTL_SECONDS = 5
+CANDIDATES_FRESH_SECONDS = 5
+CANDIDATES_MAX_STALE_SECONDS = 30
+CANDIDATES_REFRESH_LOCK_KEY = "auction:campaign_candidates:refresh_lock"
+CANDIDATES_REFRESH_LOCK_TTL_SECONDS = 10
+# For a genuine miss (nothing cached at all - cold start, or the max-stale
+# window fully elapsed): how long a request waits, retrying the cache,
+# while some other concurrent request holds the lock and computes it.
+MISS_WAIT_RETRIES = 10
+MISS_WAIT_INTERVAL_SECONDS = 0.05
 
 
 def _serialize_candidates(candidates: list[Campaign]) -> str:
-    """Convert candidate Campaigns to a JSON string for storing in Redis.
-    Only includes what matches_targeting/score_campaign/the endpoint
-    actually read - not the full row (budget/spent/dates/status don't
-    matter once a campaign has already passed the SQL filter)."""
-    return json.dumps([
-        {
-            "id": str(c.id),
-            "advertiser_id": str(c.advertiser_id),
-            "targeting": None if c.targeting is None else {
-                "min_age": c.targeting.min_age,
-                "max_age": c.targeting.max_age,
-                "country": c.targeting.country,
-                "device_type": c.targeting.device_type.value if c.targeting.device_type else None,
-                "interest_ids": [str(i.id) for i in c.targeting.interests],
-            },
-        }
-        for c in candidates
-    ])
+    """Convert candidate Campaigns to a JSON string for storing in Redis,
+    tagged with when it was computed so get_campaign_candidates can tell
+    fresh from stale-but-usable from too-old. Only includes what
+    matches_targeting/score_campaign/the endpoint actually read - not the
+    full row (budget/spent/dates/status don't matter once a campaign has
+    already passed the SQL filter)."""
+    return json.dumps({
+        "computed_at": datetime.now(timezone.utc).isoformat(),
+        "candidates": [
+            {
+                "id": str(c.id),
+                "advertiser_id": str(c.advertiser_id),
+                "targeting": None if c.targeting is None else {
+                    "min_age": c.targeting.min_age,
+                    "max_age": c.targeting.max_age,
+                    "country": c.targeting.country,
+                    "device_type": c.targeting.device_type.value if c.targeting.device_type else None,
+                    "interest_ids": [str(i.id) for i in c.targeting.interests],
+                },
+            }
+            for c in candidates
+        ],
+    })
 
 
-def _deserialize_candidates(data: str) -> list[Campaign]:
+def _deserialize_candidates(rows: list[dict]) -> list[Campaign]:
     """Rebuild real (but session-detached) Campaign/AudienceTargeting/
-    Interest objects from cached JSON - the same "construct an ORM object
-    directly, not from a query" pattern already used throughout the test
-    suite. matches_targeting/score_campaign only ever read attributes off
-    these, so they work identically whether an object came from a fresh
-    query or was rebuilt from cache."""
+    Interest objects from already-parsed cached rows - the same "construct
+    an ORM object directly, not from a query" pattern already used
+    throughout the test suite. matches_targeting/score_campaign only ever
+    read attributes off these, so they work identically whether an object
+    came from a fresh query or was rebuilt from cache."""
     candidates = []
-    for row in json.loads(data):
+    for row in rows:
         targeting = None
         if row["targeting"] is not None:
             t = row["targeting"]
@@ -77,37 +101,24 @@ def _deserialize_candidates(data: str) -> list[Campaign]:
         ))
     return candidates
 
-def get_campaign_candidates(db: Session) -> list[Campaign]:
-    """Query campaigns eligible on their own attributes alone.
 
-    Checks only what doesn't depend on which user is asking: active
-    status, within the campaign's date window, and enough budget
-    remaining to cover one more win. Per-user targeting (age/country/
-    device/interests) is checked separately in matches_targeting, once
-    this candidate list is already narrowed down.
+def _query_candidates_and_cache(db: Session) -> list[Campaign]:
+    """Run the actual expensive query and populate the cache. Shared by a
+    genuine cache miss (called inline, blocking) and a background refresh
+    (called in its own thread, with its own session), so both paths always
+    stay in sync with exactly one implementation of the query itself.
 
-    Checks the Redis cache first (see CANDIDATES_CACHE_KEY/TTL above) -
-    on a hit, returns rebuilt objects without touching Postgres at all.
-    On a miss, runs the real query (eagerly loading targeting/interests -
-    see below) and populates the cache for the next request.
-
-    Returns:
-        Campaigns passing the campaign-level checks, unfiltered by user.
-        Eagerly loads each campaign's targeting (and its interests), since
-        matches_targeting/score_campaign access both on every candidate -
-        without this, each access would lazily fire its own query, an N+1
-        problem that gets worse the more candidates there are. Uses
-        joinedload (a single JOIN) rather than selectinload for interests
-        too - at this candidate volume, selectinload's giant `WHERE id IN
-        (...)` parameter list was itself the bottleneck (measured ~300ms),
-        even though the actual data was cheap to fetch (~13ms via a plain
-        JOIN). Some row duplication from the many-to-many join is fine
-        here - SQLAlchemy de-duplicates it back into distinct objects.
+    Eagerly loads each campaign's targeting (and its interests), since
+    matches_targeting/score_campaign access both on every candidate -
+    without this, each access would lazily fire its own query, an N+1
+    problem that gets worse the more candidates there are. Uses joinedload
+    (a single JOIN) rather than selectinload for interests too - at this
+    candidate volume, selectinload's giant `WHERE id IN (...)` parameter
+    list was itself the bottleneck (measured ~300ms), even though the
+    actual data was cheap to fetch (~13ms via a plain JOIN). Some row
+    duplication from the many-to-many join is fine here - SQLAlchemy
+    de-duplicates it back into distinct objects.
     """
-    cached = redis_client.get(CANDIDATES_CACHE_KEY)
-    if cached is not None:
-        return _deserialize_candidates(cached)
-
     now = datetime.now(timezone.utc)
     candidates = (
         db.query(Campaign)
@@ -120,8 +131,86 @@ def get_campaign_candidates(db: Session) -> list[Campaign]:
         )
         .all()
     )
-    redis_client.setex(CANDIDATES_CACHE_KEY, CANDIDATES_CACHE_TTL_SECONDS, _serialize_candidates(candidates))
+    redis_client.setex(CANDIDATES_CACHE_KEY, CANDIDATES_MAX_STALE_SECONDS, _serialize_candidates(candidates))
     return candidates
+
+
+def _background_refresh_candidates_cache() -> None:
+    """Refresh the cache in the background, assuming the caller ALREADY
+    acquired the refresh lock synchronously before spawning this thread.
+
+    Opens its own DB session, since a background thread can't safely reuse
+    the original request's session. The lock is acquired by the caller
+    rather than here deliberately: checking it in the request thread (one
+    cheap Redis call) means we only ever spawn a thread for the single
+    request that actually won the right to refresh, instead of spawning
+    one per stale request and having all but one immediately exit. That
+    wasted thread churn measurably hurt throughput under load."""
+    db = SessionLocal()
+    try:
+        _query_candidates_and_cache(db)
+    finally:
+        db.close()
+        redis_client.delete(CANDIDATES_REFRESH_LOCK_KEY)
+
+
+def get_campaign_candidates(db: Session) -> list[Campaign]:
+    """Query campaigns eligible on their own attributes alone.
+
+    Checks only what doesn't depend on which user is asking: active
+    status, within the campaign's date window, and enough budget
+    remaining to cover one more win. Per-user targeting (age/country/
+    device/interests) is checked separately in matches_targeting, once
+    this candidate list is already narrowed down.
+
+    Uses stale-while-revalidate caching (see the CANDIDATES_* constants
+    above): a fresh cache hit returns immediately with no extra work; a
+    stale-but-usable hit also returns immediately, but triggers a
+    background refresh for next time; a genuine miss (nothing cached, or
+    past the max-stale window) blocks and computes it inline, same as a
+    plain cache would.
+
+    Returns:
+        Campaigns passing the campaign-level checks, unfiltered by user.
+    """
+    cached = redis_client.get(CANDIDATES_CACHE_KEY)
+
+    if cached is not None:
+        data = json.loads(cached)
+        computed_at = datetime.fromisoformat(data["computed_at"])
+        age_seconds = (datetime.now(timezone.utc) - computed_at).total_seconds()
+
+        if age_seconds > CANDIDATES_FRESH_SECONDS and redis_client.set(
+            CANDIDATES_REFRESH_LOCK_KEY, "1", nx=True, ex=CANDIDATES_REFRESH_LOCK_TTL_SECONDS
+        ):
+            threading.Thread(target=_background_refresh_candidates_cache, daemon=True).start()
+
+        return _deserialize_candidates(data["candidates"])
+
+    # Genuine miss - nothing cached at all (cold start, or the max-stale
+    # window fully elapsed with no traffic to trigger a refresh). Same
+    # lock as the background-refresh path: only the request that wins it
+    # actually pays for the expensive query. Everyone else waits briefly
+    # and retries the cache instead of each redoing the same work - this
+    # is the same stampede risk as the background-refresh path, just for
+    # the cold-start moment instead of the steady-state one.
+    if redis_client.set(CANDIDATES_REFRESH_LOCK_KEY, "1", nx=True, ex=CANDIDATES_REFRESH_LOCK_TTL_SECONDS):
+        try:
+            return _query_candidates_and_cache(db)
+        finally:
+            redis_client.delete(CANDIDATES_REFRESH_LOCK_KEY)
+
+    for _ in range(MISS_WAIT_RETRIES):
+        time.sleep(MISS_WAIT_INTERVAL_SECONDS)
+        cached = redis_client.get(CANDIDATES_CACHE_KEY)
+        if cached is not None:
+            data = json.loads(cached)
+            return _deserialize_candidates(data["candidates"])
+
+    # Still nothing after waiting (the lock holder crashed, or is just
+    # unusually slow) - fall back to computing it ourselves rather than
+    # blocking forever.
+    return _query_candidates_and_cache(db)
 
 
 def compute_age(birthdate: date, today: date | None = None) -> int:
