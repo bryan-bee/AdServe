@@ -10,17 +10,41 @@ import httpx
 from sqlalchemy import text
 
 from app.db.session import SessionLocal
+from app.models.audience_targeting import AudienceTargeting  # noqa: F401 - registers for Campaign.targeting relationship resolution
+from app.models.campaign import Campaign
+from app.models.user import User
 
 BASE_URL = "http://127.0.0.1:8000"
 NUM_REQUESTS = 500
 CONVERSION_RATE = 0.10
 
+BASE_CLICK_RATE = 0.01
+PER_OVERLAP_BONUS = 0.02
+MAX_CLICK_RATE = 0.2
 
-def click_probability(score: int) -> float:
-    """Higher-scoring (better-matched) impressions get clicked more often,
-    so the simulated data actually contains a learnable match-quality ->
-    engagement signal, rather than being pure noise."""
-    return min(score * 0.02, 0.2)
+
+def true_click_probability(campaign: Campaign, user: User) -> float:
+    """The 'ground truth' of whether this simulated user would click - an
+    evaluation harness, deliberately independent of score_campaign (the
+    system under test).
+
+    Computed directly from raw interest overlap between the user and the
+    campaign's targeting, never from campaign.targeting's live score. If
+    clicks were generated from score_campaign's own output instead, any
+    future improvement to that scoring function would automatically look
+    like a CTR improvement here too - even if the change didn't actually
+    make ranking better - since the "test" would just be agreeing with
+    itself. Keeping this function fixed and never touching it when
+    score_campaign changes is what makes a future before/after CTR
+    comparison a real, falsifiable measurement instead of a tautology.
+    """
+    targeting = campaign.targeting
+    if targeting is None or not targeting.interests:
+        return BASE_CLICK_RATE
+    targeting_ids = {i.id for i in targeting.interests}
+    user_ids = {i.id for i in user.interests}
+    overlap = len(targeting_ids & user_ids)
+    return min(BASE_CLICK_RATE + PER_OVERLAP_BONUS * overlap, MAX_CLICK_RATE)
 
 
 def get_random_user_ids(db, count: int) -> list[str]:
@@ -31,14 +55,6 @@ def get_random_user_ids(db, count: int) -> list[str]:
     return [str(row[0]) for row in rows]
 
 
-def get_impression_score(db, impression_id: str) -> int:
-    row = db.execute(
-        text("SELECT score FROM impressions WHERE id = :id"),
-        {"id": impression_id},
-    ).fetchone()
-    return row[0]
-
-
 def simulate_one(client: httpx.Client, db, user_id: str) -> str:
     response = client.post(f"{BASE_URL}/auction", json={"user_id": user_id})
 
@@ -46,10 +62,13 @@ def simulate_one(client: httpx.Client, db, user_id: str) -> str:
         return "no_fill"
 
     response.raise_for_status()
-    impression_id = response.json()["impression_id"]
+    data = response.json()
+    impression_id = data["impression_id"]
 
-    score = get_impression_score(db, impression_id)
-    if random.random() >= click_probability(score):
+    user = db.get(User, user_id)
+    campaign = db.get(Campaign, data["campaign_id"])
+
+    if random.random() >= true_click_probability(campaign, user):
         return "impression_only"
 
     click_response = client.post(f"{BASE_URL}/impressions/{impression_id}/clicks")
