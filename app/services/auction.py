@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import datetime, timezone, date
 from decimal import Decimal
 import json
@@ -11,7 +12,6 @@ from app.models.campaign import Campaign, CampaignStatus
 from app.models.audience_targeting import AudienceTargeting
 from app.models.enums import DeviceType
 from app.models.impression import Impression
-from app.models.interest import Interest
 from app.models.user import User
 import random
 
@@ -49,14 +49,48 @@ MISS_WAIT_RETRIES = 10
 MISS_WAIT_INTERVAL_SECONDS = 0.05
 
 
-def _serialize_candidates(candidates: list[Campaign]) -> str:
-    """Convert candidate Campaigns to a JSON string for storing in Redis,
-    tagged with when it was computed so get_campaign_candidates can tell
-    fresh from stale-but-usable from too-old. Only includes what
+# Lightweight, plain-Python stand-ins for Campaign/AudienceTargeting/
+# Interest, used for the read-only filter/score/pick-winner path instead
+# of real SQLAlchemy-mapped objects. Real ORM instances carry real cost to
+# construct - change-tracking history, relationship/collection sync, an
+# internal state object - none of which this read-only path needs.
+# Measured directly: deserializing ~2,257 cached candidates into real ORM
+# objects cost ~81ms of GIL-holding CPU per cache hit; the same data into
+# these plain dataclasses cost ~11ms, a ~7.6x reduction. That GIL-holding
+# time was the actual cause of a concurrency regression - see
+# STUDY_NOTES.md §14. matches_targeting/score_campaign only ever read
+# attributes (never check the concrete type), so real ORM objects (as
+# used throughout the test suite) work identically via duck typing.
+@dataclass(slots=True)
+class CandidateInterest:
+    id: uuid.UUID
+
+
+@dataclass(slots=True)
+class CandidateTargeting:
+    min_age: int | None
+    max_age: int | None
+    country: str | None
+    device_type: DeviceType | None
+    interests: list[CandidateInterest]
+
+
+@dataclass(slots=True)
+class CandidateCampaign:
+    id: uuid.UUID
+    advertiser_id: uuid.UUID
+    targeting: CandidateTargeting | None
+
+
+def _build_candidates_payload(candidates: list[Campaign]) -> dict:
+    """Build the cacheable payload from real Campaign ORM objects (as
+    returned by the actual database query) - tagged with when it was
+    computed so get_campaign_candidates can tell fresh from
+    stale-but-usable from too-old. Only includes what
     matches_targeting/score_campaign/the endpoint actually read - not the
     full row (budget/spent/dates/status don't matter once a campaign has
     already passed the SQL filter)."""
-    return json.dumps({
+    return {
         "computed_at": datetime.now(timezone.utc).isoformat(),
         "candidates": [
             {
@@ -72,29 +106,29 @@ def _serialize_candidates(candidates: list[Campaign]) -> str:
             }
             for c in candidates
         ],
-    })
+    }
 
 
-def _deserialize_candidates(rows: list[dict]) -> list[Campaign]:
-    """Rebuild real (but session-detached) Campaign/AudienceTargeting/
-    Interest objects from already-parsed cached rows - the same "construct
-    an ORM object directly, not from a query" pattern already used
-    throughout the test suite. matches_targeting/score_campaign only ever
-    read attributes off these, so they work identically whether an object
-    came from a fresh query or was rebuilt from cache."""
+def _deserialize_candidates(rows: list[dict]) -> list[CandidateCampaign]:
+    """Rebuild lightweight CandidateCampaign/CandidateTargeting/
+    CandidateInterest objects from already-parsed cached rows. Used for
+    both a cache hit and a fresh database query's result (see
+    _query_candidates_and_cache), so filter_eligible_campaigns/
+    matches_targeting/score_campaign/pick_winner always receive the same
+    type regardless of whether this request was a hit or a miss."""
     candidates = []
     for row in rows:
         targeting = None
         if row["targeting"] is not None:
             t = row["targeting"]
-            targeting = AudienceTargeting(
+            targeting = CandidateTargeting(
                 min_age=t["min_age"],
                 max_age=t["max_age"],
                 country=t["country"],
                 device_type=DeviceType(t["device_type"]) if t["device_type"] else None,
-                interests=[Interest(id=uuid.UUID(iid)) for iid in t["interest_ids"]],
+                interests=[CandidateInterest(id=uuid.UUID(iid)) for iid in t["interest_ids"]],
             )
-        candidates.append(Campaign(
+        candidates.append(CandidateCampaign(
             id=uuid.UUID(row["id"]),
             advertiser_id=uuid.UUID(row["advertiser_id"]),
             targeting=targeting,
@@ -102,25 +136,30 @@ def _deserialize_candidates(rows: list[dict]) -> list[Campaign]:
     return candidates
 
 
-def _query_candidates_and_cache(db: Session) -> list[Campaign]:
+def _query_candidates_and_cache(db: Session) -> list[CandidateCampaign]:
     """Run the actual expensive query and populate the cache. Shared by a
     genuine cache miss (called inline, blocking) and a background refresh
     (called in its own thread, with its own session), so both paths always
     stay in sync with exactly one implementation of the query itself.
 
     Eagerly loads each campaign's targeting (and its interests), since
-    matches_targeting/score_campaign access both on every candidate -
-    without this, each access would lazily fire its own query, an N+1
-    problem that gets worse the more candidates there are. Uses joinedload
-    (a single JOIN) rather than selectinload for interests too - at this
+    building the cache payload reads both on every candidate - without
+    this, each access would lazily fire its own query, an N+1 problem
+    that gets worse the more candidates there are. Uses joinedload (a
+    single JOIN) rather than selectinload for interests too - at this
     candidate volume, selectinload's giant `WHERE id IN (...)` parameter
     list was itself the bottleneck (measured ~300ms), even though the
     actual data was cheap to fetch (~13ms via a plain JOIN). Some row
     duplication from the many-to-many join is fine here - SQLAlchemy
     de-duplicates it back into distinct objects.
+
+    Returns CandidateCampaign objects, not the real Campaign ORM instances
+    just queried - built from the same payload that gets cached, so a
+    cache miss and a subsequent cache hit are guaranteed to hand callers
+    the exact same shape.
     """
     now = datetime.now(timezone.utc)
-    candidates = (
+    real_candidates = (
         db.query(Campaign)
         .options(joinedload(Campaign.targeting).joinedload(AudienceTargeting.interests))
         .filter(
@@ -131,8 +170,9 @@ def _query_candidates_and_cache(db: Session) -> list[Campaign]:
         )
         .all()
     )
-    redis_client.setex(CANDIDATES_CACHE_KEY, CANDIDATES_MAX_STALE_SECONDS, _serialize_candidates(candidates))
-    return candidates
+    payload = _build_candidates_payload(real_candidates)
+    redis_client.setex(CANDIDATES_CACHE_KEY, CANDIDATES_MAX_STALE_SECONDS, json.dumps(payload))
+    return _deserialize_candidates(payload["candidates"])
 
 
 def _background_refresh_candidates_cache() -> None:
@@ -154,7 +194,7 @@ def _background_refresh_candidates_cache() -> None:
         redis_client.delete(CANDIDATES_REFRESH_LOCK_KEY)
 
 
-def get_campaign_candidates(db: Session) -> list[Campaign]:
+def get_campaign_candidates(db: Session) -> list[CandidateCampaign]:
     """Query campaigns eligible on their own attributes alone.
 
     Checks only what doesn't depend on which user is asking: active
@@ -232,7 +272,7 @@ def compute_age(birthdate: date, today: date | None = None) -> int:
     return today.year - birthdate.year - ((today.month, today.day) < (birthdate.month, birthdate.day))
 
 
-def matches_targeting(targeting: AudienceTargeting, user: User, user_age: int) -> bool:
+def matches_targeting(targeting: CandidateTargeting | AudienceTargeting, user: User, user_age: int) -> bool:
     """Check whether a single targeting row matches a specific user.
 
     Every field follows the same rule: null/empty means unrestricted on
@@ -241,7 +281,11 @@ def matches_targeting(targeting: AudienceTargeting, user: User, user_age: int) -
     the campaign's targeted list, not match all of them.
 
     Args:
-        targeting: The campaign's audience targeting rules.
+        targeting: The campaign's audience targeting rules - either the
+            lightweight CandidateTargeting used in production (see
+            get_campaign_candidates) or a real AudienceTargeting (as
+            constructed directly in tests). Only attributes are read, so
+            either works identically.
         user: The user being evaluated.
         user_age: The user's current age, precomputed by the caller (see
             compute_age) rather than derived here, since callers checking
@@ -269,7 +313,7 @@ def matches_targeting(targeting: AudienceTargeting, user: User, user_age: int) -
     return True
 
 
-def filter_eligible_campaigns(db: Session, user: User) -> list[Campaign]:
+def filter_eligible_campaigns(db: Session, user: User) -> list[CandidateCampaign]:
     """Get every campaign eligible to compete for this user's auction.
 
     Combines the cheap, campaign-level SQL filter (get_campaign_candidates)
@@ -293,7 +337,7 @@ def filter_eligible_campaigns(db: Session, user: User) -> list[Campaign]:
     ]
 
 
-def score_campaign(campaign: Campaign, user: User) -> int:
+def score_campaign(campaign: CandidateCampaign | Campaign, user: User) -> int:
     """Score how well a campaign matches a user, for ranking purposes.
 
     Deliberately kept as its own function, separate from filtering and
@@ -302,7 +346,11 @@ def score_campaign(campaign: Campaign, user: User) -> int:
     selection work.
 
     Args:
-        campaign: An already-eligible campaign (see filter_eligible_campaigns).
+        campaign: An already-eligible campaign (see filter_eligible_campaigns) -
+            either the lightweight CandidateCampaign used in production or
+            a real Campaign (as constructed directly in tests, or as
+            re-fetched in record_win before writing). Only attributes are
+            read, so either works identically.
         user: The user being scored against.
 
     Returns:
@@ -320,7 +368,7 @@ def score_campaign(campaign: Campaign, user: User) -> int:
     return 1 + overlap
 
 
-def pick_winner(eligible_campaigns: list[Campaign], user: User) -> Campaign | None:
+def pick_winner(eligible_campaigns: list[CandidateCampaign], user: User) -> CandidateCampaign | None:
     """Pick a winning campaign via weighted-random selection.
 
     Deliberately not a hard "highest score always wins" - a campaign's
@@ -345,7 +393,7 @@ def pick_winner(eligible_campaigns: list[Campaign], user: User) -> Campaign | No
     scores = [score_campaign(c, user) for c in eligible_campaigns]
     return random.choices(eligible_campaigns, weights=scores, k=1)[0]
 
-def record_win(db: Session, campaign: Campaign, user: User) -> Impression:
+def record_win(db: Session, campaign: CandidateCampaign, user: User) -> Impression:
     """Record that a campaign won an auction: charge it for the win and
     log an impression capturing the full decision-time context.
 
@@ -360,17 +408,17 @@ def record_win(db: Session, campaign: Campaign, user: User) -> Impression:
 
     Args:
         db: Active database session.
-        campaign: The campaign that won and should be charged.
+        campaign: The campaign that won and should be charged - the
+            lightweight CandidateCampaign returned by pick_winner, never
+            session-attached, so it can only be used for its `.id` here.
         user: The user the auction was run for.
 
     Returns:
         The newly created Impression row.
     """
-    # campaign may have been rebuilt from the Redis cache (see
-    # get_campaign_candidates), not loaded from this session - only a
-    # real, session-attached object can be written to and committed.
-    # If it's already in this session's identity map (the normal,
-    # non-cached path), this is a no-op lookup, not a real extra query.
+    # campaign is a lightweight CandidateCampaign (from get_campaign_candidates/
+    # pick_winner), never loaded by this session - only a real,
+    # session-attached Campaign can be written to and committed.
     campaign = db.get(Campaign, campaign.id)
 
     campaign.spent += COST_PER_WIN
