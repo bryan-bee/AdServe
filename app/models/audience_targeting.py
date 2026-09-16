@@ -20,6 +20,13 @@ targeting_interests = Table(
 
 
 class AudienceTargeting(Base):
+    """A campaign's audience targeting rules - at most one per campaign.
+
+    Every field is nullable, and null means "unrestricted on this
+    dimension" rather than "excludes everyone" - a campaign with every
+    field null is eligible to show to anyone.
+    """
+
     __tablename__ = "audience_targeting"
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     campaign_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey("campaigns.id", ondelete="CASCADE"), 

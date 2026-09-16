@@ -13,11 +13,23 @@ if TYPE_CHECKING:
     from app.models.audience_targeting import AudienceTargeting
     
 class CampaignStatus(str, enum.Enum):
+    """A campaign's own advertiser-controlled state. The auction also
+    independently checks the campaign's date window and budget - a
+    campaign can still be excluded even when status says ACTIVE, e.g. if
+    its end_date has already passed."""
+
     ACTIVE = "active"
     PAUSED = "paused"
     ENDED = "ended"
 
 class Campaign(Base):
+    """An advertiser's ad campaign - a budget, a date window, and a status.
+
+    `budget` is the fixed total allocation and is never modified after
+    creation; `spent` tracks usage against it, so remaining budget is
+    always `budget - spent` rather than a separately stored value.
+    """
+
     __tablename__ = "campaigns"
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     advertiser_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("advertisers.id", ondelete="RESTRICT"), nullable=False)

@@ -22,11 +22,17 @@ TestSessionLocal = sessionmaker(bind=test_engine)
 
 
 def reset_tables(db):
+    """Wipe the test database's tables (and everything that cascades from
+    them) so every run of this script starts from a clean slate."""
     db.execute(text("TRUNCATE advertisers, interests, users CASCADE"))
     db.commit()
 
 
 def seed(db):
+    """Seed one advertiser, two interests, two campaigns (one genuinely
+    eligible, one deliberately stale), and one matching user - just
+    enough fixture data for the integration tests in
+    tests/test_auction_integration.py."""
     gaming = Interest(name="gaming")
     cooking = Interest(name="cooking")
     db.add_all([gaming, cooking])
