@@ -1,15 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
+from app.core.metrics import auction_no_fill_total, auction_wins_total
+from app.core.rate_limit import auction_rate_limit
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.auction import AuctionRequest, AuctionResponse
-from app.services.auction import filter_eligible_campaigns, pick_winner, record_win
+from app.services.auction import filter_eligible_campaigns, get_user_interest_weights, pick_winner, record_win
 
 router = APIRouter()
 
 
-@router.post("", response_model=AuctionResponse)
+@router.post("", response_model=AuctionResponse, dependencies=[Depends(auction_rate_limit)])
 def run_auction(payload: AuctionRequest, db: Session = Depends(get_db)):
     """Run an ad auction for a user.
 
@@ -36,12 +38,18 @@ def run_auction(payload: AuctionRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="User not found")
 
     eligible = filter_eligible_campaigns(db, user)
-    winner = pick_winner(eligible, user)
+    # Fetched ONCE per request, then reused for both winner selection and
+    # the score persisted below - see get_user_interest_weights and
+    # record_win's docstring for why the same dict has to feed both.
+    user_interest_weights = get_user_interest_weights(db, user.id)
+    winner = pick_winner(eligible, user, user_interest_weights)
 
     if winner is None:
+        auction_no_fill_total.inc()
         return Response(status_code=204)
 
-    impression = record_win(db, winner, user)
+    auction_wins_total.inc()
+    impression = record_win(db, winner, user, user_interest_weights)
     return AuctionResponse(
         campaign_id=winner.id,
         advertiser_id=winner.advertiser_id,

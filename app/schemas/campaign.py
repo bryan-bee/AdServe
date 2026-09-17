@@ -6,7 +6,15 @@ from datetime import datetime
 
 
 class CampaignCreate(BaseModel):
-    advertiser_id: UUID
+    """Request body for POST /campaigns.
+
+    Deliberately has NO advertiser_id: which advertiser this campaign
+    belongs to is derived from the authenticated API key, never from the
+    request body. Letting a caller name the owner is exactly the
+    authorization hole that authentication exists to close - see
+    STUDY_NOTES.md §24.2.
+    """
+
     budget: Decimal
     start_date: datetime
     end_date: datetime

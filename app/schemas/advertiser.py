@@ -16,3 +16,15 @@ class AdvertiserRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
     name: str
+
+
+class AdvertiserCreated(AdvertiserRead):
+    """Response shape for POST /advertisers ONLY - the one and only time
+    the plaintext API key is ever returned. Only its SHA-256 hash is
+    stored (see app/core/security.py), so a caller who loses this value
+    cannot recover it from the server; they would need a new advertiser.
+    Deliberately a separate schema from AdvertiserRead so that GET
+    /advertisers, which returns every advertiser, can never accidentally
+    include a key field."""
+
+    api_key: str
