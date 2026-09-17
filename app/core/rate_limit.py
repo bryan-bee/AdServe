@@ -8,13 +8,17 @@ this approach has (burst at a window boundary).
 """
 from fastapi import HTTPException, Request
 
+from app.core.config import settings
 from app.db.redis_client import redis_client
 
-# Deliberately generous enough that normal simulated traffic and the test
-# suite never trip it, tight enough to demonstrate real protection. These
-# are per-client-per-endpoint-group, not global.
-AUCTION_RATE_LIMIT = 100
-AUCTION_WINDOW_SECONDS = 10
+# Per-client-per-endpoint-group, not global. Read from settings so a load
+# test or scripts/simulate_traffic.py can raise the ceiling via the
+# environment (AUCTION_RATE_LIMIT=...) without editing code - necessary
+# because all such traffic originates from one machine and therefore
+# shares a single bucket. Kept as module-level names rather than reading
+# settings inside the function so tests can monkeypatch them directly.
+AUCTION_RATE_LIMIT = settings.auction_rate_limit
+AUCTION_WINDOW_SECONDS = settings.auction_rate_window_seconds
 
 
 def client_identifier(request: Request) -> str:

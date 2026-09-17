@@ -15,6 +15,13 @@ class Settings(BaseSettings):
     test_redis_url: str
     kafka_bootstrap_servers: str
     kafka_events_topic: str
+    # Rate limiting (see app/core/rate_limit.py). Configurable rather than
+    # hardcoded specifically so load tests and scripts/simulate_traffic.py
+    # can raise it: every request from those comes from one machine and so
+    # shares a single per-IP bucket, which otherwise throttles the load
+    # generator instead of the server. See STUDY_NOTES.md §30.4.
+    auction_rate_limit: int = 100
+    auction_rate_window_seconds: int = 10
 
 
 settings = Settings()
