@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     test_database_url: str
     redis_url: str
     test_redis_url: str
+    kafka_bootstrap_servers: str
+    kafka_events_topic: str
 
 
 settings = Settings()
