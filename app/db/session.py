@@ -29,7 +29,23 @@ engine = create_engine(
     pool_timeout=DB_POOL_TIMEOUT_SECONDS,
 )
 
-SessionLocal = sessionmaker(engine)
+# expire_on_commit=False: by default SQLAlchemy marks every attribute of
+# every object as stale after commit(), so the next attribute read issues a
+# fresh SELECT. Every write endpoint here commits and then immediately reads
+# the object back (to serialize it into the response), which made that
+# reload an unavoidable extra round trip on each write - ~1.3ms measured on
+# record_win alone. Nothing in this codebase depends on post-commit
+# re-reading: every primary key and default is generated Python-side
+# (default=uuid.uuid4, default=Decimal("0")), so the in-memory object
+# already holds exactly what was written.
+#
+# The tradeoff to remember: if a write is ever expressed as a SQL-side
+# expression the database evaluates (e.g. an atomic
+# `UPDATE campaigns SET spent = spent + 0.50`), the Python object will hold
+# the pre-update value until explicitly refreshed. Reach for
+# db.refresh(obj) at those specific call sites rather than turning this
+# back on globally.
+SessionLocal = sessionmaker(engine, expire_on_commit=False)
 
 # A SEPARATE, tiny, dedicated engine/pool used ONLY by the background
 # cache-refresh thread in app/services/auction.py - never by request

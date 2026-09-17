@@ -1,4 +1,4 @@
-from sqlalchemy import Table, Column, Uuid, ForeignKey, String, Uuid, Date, Enum as SqlEnum
+from sqlalchemy import Table, Column, Uuid, ForeignKey, String, Uuid, Date, Enum as SqlEnum, Float
 from app.db.base import Base
 import uuid
 from datetime import date
@@ -15,6 +15,19 @@ user_interests = Table(
     Base.metadata,
     Column("user_id", Uuid, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
     Column("interest_id", Uuid, ForeignKey("interests.id", ondelete="CASCADE"), primary_key=True),
+    # Step 8b (preference learning): how strongly this user is associated
+    # with this interest, nudged over time by scripts/consume_events.py
+    # from click behavior - see STUDY_NOTES.md §21. Deliberately a plain
+    # extra column on the existing many-to-many table, not a new ORM
+    # association-object class: User.interests (the `relationship` below)
+    # only ever needs the SET of a user's interests, and a plain
+    # `secondary=` relationship ignores columns beyond the two foreign
+    # keys, so every existing reader of `user.interests` (matches_targeting,
+    # score_campaign, Impression snapshotting, every test) needed zero
+    # changes. Only the nudging consumer ever reads or writes this column,
+    # via direct Core statements against this Table object - not through
+    # the ORM relationship.
+    Column("weight", Float, nullable=False, server_default="1.0"),
 )
 
 class User(Base):

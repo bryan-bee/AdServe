@@ -5,6 +5,7 @@ import json
 import threading
 import time
 import uuid
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session, joinedload
 from app.db.redis_client import redis_client
 from app.db.session import BackgroundSessionLocal, SessionLocal
@@ -12,7 +13,7 @@ from app.models.campaign import Campaign, CampaignStatus
 from app.models.audience_targeting import AudienceTargeting
 from app.models.enums import DeviceType
 from app.models.impression import Impression
-from app.models.user import User
+from app.models.user import User, user_interests
 import random
 
 
@@ -92,17 +93,19 @@ _local_candidates_cache: dict = {"stamp": None, "candidates": None}
 # attributes (never check the concrete type), so real ORM objects (as
 # used throughout the test suite) work identically via duck typing.
 @dataclass(slots=True)
-class CandidateInterest:
-    id: uuid.UUID
-
-
-@dataclass(slots=True)
 class CandidateTargeting:
     min_age: int | None
     max_age: int | None
     country: str | None
     device_type: DeviceType | None
-    interests: list[CandidateInterest]
+    # A ready-to-intersect frozenset, built ONCE per cache generation rather
+    # than rebuilt per request per campaign. The set is what
+    # matches_targeting/score_campaign actually need; storing the underlying
+    # interest objects instead meant every request rebuilt ~2,200 sets (one
+    # per candidate) out of ~5,000 tiny objects that only ever existed to be
+    # read back into a set. Same reasoning as _local_candidates_cache above:
+    # identical work, repeated per request, holding the GIL.
+    interest_ids: frozenset[uuid.UUID]
 
 
 @dataclass(slots=True)
@@ -140,8 +143,8 @@ def _build_candidates_payload(candidates: list[Campaign]) -> dict:
 
 
 def _deserialize_candidates(rows: list[dict]) -> list[CandidateCampaign]:
-    """Rebuild lightweight CandidateCampaign/CandidateTargeting/
-    CandidateInterest objects from already-parsed cached rows. Used for
+    """Rebuild lightweight CandidateCampaign/CandidateTargeting objects
+    from already-parsed cached rows. Used for
     both a cache hit and a fresh database query's result (see
     _query_candidates_and_cache), so filter_eligible_campaigns/
     matches_targeting/score_campaign/pick_winner always receive the same
@@ -156,7 +159,7 @@ def _deserialize_candidates(rows: list[dict]) -> list[CandidateCampaign]:
                 max_age=t["max_age"],
                 country=t["country"],
                 device_type=DeviceType(t["device_type"]) if t["device_type"] else None,
-                interests=[CandidateInterest(id=uuid.UUID(iid)) for iid in t["interest_ids"]],
+                interest_ids=frozenset(uuid.UUID(iid) for iid in t["interest_ids"]),
             )
         candidates.append(CandidateCampaign(
             id=uuid.UUID(row["id"]),
@@ -354,7 +357,26 @@ def compute_age(birthdate: date, today: date | None = None) -> int:
     return today.year - birthdate.year - ((today.month, today.day) < (birthdate.month, birthdate.day))
 
 
-def matches_targeting(targeting: CandidateTargeting | AudienceTargeting, user: User, user_age: int) -> bool:
+def _targeting_interest_ids(targeting: CandidateTargeting | AudienceTargeting) -> frozenset[uuid.UUID]:
+    """Get a targeting row's interest ids as a set.
+
+    CandidateTargeting (the production path) precomputes this once per cache
+    generation, so this is a free attribute read. A real AudienceTargeting
+    (tests, and any direct ORM use) has no such field, so the set is built
+    on demand from its `interests` relationship - correct, just not free.
+    """
+    precomputed = getattr(targeting, "interest_ids", None)
+    if precomputed is not None:
+        return precomputed
+    return frozenset(i.id for i in targeting.interests)
+
+
+def matches_targeting(
+    targeting: CandidateTargeting | AudienceTargeting,
+    user: User,
+    user_age: int,
+    user_interest_ids: frozenset[uuid.UUID] | None = None,
+) -> bool:
     """Check whether a single targeting row matches a specific user.
 
     Every field follows the same rule: null/empty means unrestricted on
@@ -373,10 +395,18 @@ def matches_targeting(targeting: CandidateTargeting | AudienceTargeting, user: U
             compute_age) rather than derived here, since callers checking
             many campaigns against the same user shouldn't recompute it
             once per campaign.
+        user_interest_ids: The user's interest ids as a set, precomputed by
+            the caller for exactly the same reason as user_age - it's
+            identical for every campaign checked in one auction. Optional
+            purely so single-campaign callers (tests) can omit it; when
+            omitted it's built here.
 
     Returns:
         True if the user satisfies every targeting restriction.
     """
+    if user_interest_ids is None:
+        user_interest_ids = frozenset(i.id for i in user.interests)
+
     if targeting.min_age is not None and user_age < targeting.min_age:
         return False
     if targeting.max_age is not None and user_age > targeting.max_age:
@@ -386,11 +416,9 @@ def matches_targeting(targeting: CandidateTargeting | AudienceTargeting, user: U
     if targeting.device_type is not None and targeting.device_type != user.device_type:
         return False
 
-    if targeting.interests:
-        targeting_interest_ids = {i.id for i in targeting.interests}
-        user_interest_ids = {i.id for i in user.interests}
-        if not targeting_interest_ids & user_interest_ids:
-            return False
+    targeting_interest_ids = _targeting_interest_ids(targeting)
+    if targeting_interest_ids and not targeting_interest_ids & user_interest_ids:
+        return False
 
     return True
 
@@ -412,14 +440,54 @@ def filter_eligible_campaigns(db: Session, user: User) -> list[CandidateCampaign
         specific user, right now.
     """
     user_age = compute_age(user.birthdate)
+    # Built once here, not once per candidate - this is the same value for
+    # every one of the ~2,200 campaigns checked below.
+    user_interest_ids = frozenset(i.id for i in user.interests)
     candidates = get_campaign_candidates(db)
     return [
         campaign for campaign in candidates
-        if campaign.targeting is None or matches_targeting(campaign.targeting, user, user_age)
+        if campaign.targeting is None
+        or matches_targeting(campaign.targeting, user, user_age, user_interest_ids)
     ]
 
 
-def score_campaign(campaign: CandidateCampaign | Campaign, user: User) -> int:
+def get_user_interest_weights(db: Session, user_id: uuid.UUID) -> dict[uuid.UUID, float]:
+    """Real per-interest weights for one user, keyed by interest id.
+
+    This is the READ side of Step 8b's preference-learning feedback loop
+    (see STUDY_NOTES.md §22): scripts/consume_events.py's
+    nudge_interests_from_click WRITES this same weight column every time
+    the user clicks something, and score_campaign (below) is what
+    actually makes those writes matter - an interest this user has
+    engaged with repeatedly now outscores one they merely happen to share
+    with a campaign but have never clicked on.
+
+    One query, meant to be called ONCE per auction request (see
+    run_auction) and the resulting dict threaded through to both
+    pick_winner and record_win - not once per candidate campaign, which
+    would repeat the exact same result ~2,200 times for no reason (the
+    same lesson as user_age/user_interest_ids being hoisted once in
+    filter_eligible_campaigns - see §19).
+
+    Returns:
+        {interest_id: weight}, covering only interests this user actually
+        has a row for - an interest with no row (never seeded, never
+        nudged into existence by a click) simply isn't a key here, not a
+        0.0 entry.
+    """
+    rows = db.execute(
+        select(user_interests.c.interest_id, user_interests.c.weight).where(
+            user_interests.c.user_id == user_id
+        )
+    ).all()
+    return {row.interest_id: row.weight for row in rows}
+
+
+def score_campaign(
+    campaign: CandidateCampaign | Campaign,
+    user: User,
+    user_interest_weights: dict[uuid.UUID, float] | None = None,
+) -> float:
     """Score how well a campaign matches a user, for ranking purposes.
 
     Deliberately kept as its own function, separate from filtering and
@@ -434,36 +502,71 @@ def score_campaign(campaign: CandidateCampaign | Campaign, user: User) -> int:
             re-fetched in record_win before writing). Only attributes are
             read, so either works identically.
         user: The user being scored against.
+        user_interest_weights: This user's real, persisted per-interest
+            weights (see get_user_interest_weights) - an interest nudged
+            up by repeated clicks (Step 8b) counts for MORE here than one
+            the user merely happens to share with the campaign but has
+            never engaged with. Falls back to a flat weight of 1.0 for
+            every interest in `user.interests` when omitted - this
+            function's original plain-overlap-counting behavior,
+            preserved for direct/test callers that don't have real
+            weight data and don't need it (every existing test keeps
+            passing unmodified via this fallback).
 
     Returns:
-        A baseline of 1 (so even broad, untargeted campaigns can still
-        occasionally win) plus one point per interest the campaign's
-        targeting shares with the user.
+        A baseline of 1.0 (so even broad, untargeted campaigns can still
+        occasionally win) plus the SUM of this user's weight for every
+        interest the campaign's targeting shares with the user - not just
+        a count of how many matched. Eligibility (matches_targeting) is
+        unaffected by weight and stays a plain yes/no on the same
+        membership check as before; weight only ever changes the ODDS
+        among campaigns that are already eligible, never whether one is
+        eligible at all.
     """
     targeting = campaign.targeting
-    if targeting is None or not targeting.interests:
-        return 1
+    if targeting is None:
+        return 1.0
 
-    targeting_interest_ids = {i.id for i in targeting.interests}
-    user_interest_ids = {i.id for i in user.interests}
-    overlap = len(targeting_interest_ids & user_interest_ids)
-    return 1 + overlap
+    targeting_interest_ids = _targeting_interest_ids(targeting)
+    if not targeting_interest_ids:
+        return 1.0
+
+    if user_interest_weights is None:
+        user_interest_weights = {i.id: 1.0 for i in user.interests}
+
+    matched_weight = sum(
+        user_interest_weights[interest_id]
+        for interest_id in targeting_interest_ids
+        if interest_id in user_interest_weights
+    )
+    return 1.0 + matched_weight
 
 
-def pick_winner(eligible_campaigns: list[CandidateCampaign], user: User) -> CandidateCampaign | None:
+def pick_winner(
+    eligible_campaigns: list[CandidateCampaign],
+    user: User,
+    user_interest_weights: dict[uuid.UUID, float] | None = None,
+) -> CandidateCampaign | None:
     """Pick a winning campaign via weighted-random selection.
 
     Deliberately not a hard "highest score always wins" - a campaign's
     odds are proportional to its score, so a strong match usually but not
     always wins, and broad/low-score campaigns still get a real, if
     smaller, chance. This function has no side effects (it doesn't touch
-    the database), so it's safe to call repeatedly for testing/inspection
-    without accidentally recording wins that never really happened - see
-    record_win for the actual side-effecting step.
+    the database itself - see user_interest_weights below), so it's safe
+    to call repeatedly for testing/inspection without accidentally
+    recording wins that never really happened - see record_win for the
+    actual side-effecting step.
 
     Args:
         eligible_campaigns: Campaigns already filtered as eligible for this user.
         user: The user being auctioned to, passed through to score_campaign.
+        user_interest_weights: This user's real per-interest weights (see
+            get_user_interest_weights), fetched once by the caller (see
+            run_auction) - not fetched here, so this function still never
+            touches the database itself. Omitted (None) falls back to
+            score_campaign's plain-overlap-counting behavior - what every
+            existing test here still exercises, unmodified.
 
     Returns:
         The winning campaign, or None if eligible_campaigns is empty (a
@@ -472,10 +575,15 @@ def pick_winner(eligible_campaigns: list[CandidateCampaign], user: User) -> Cand
     if not eligible_campaigns:
         return None
 
-    scores = [score_campaign(c, user) for c in eligible_campaigns]
+    scores = [score_campaign(c, user, user_interest_weights) for c in eligible_campaigns]
     return random.choices(eligible_campaigns, weights=scores, k=1)[0]
 
-def record_win(db: Session, campaign: CandidateCampaign, user: User) -> Impression:
+def record_win(
+    db: Session,
+    campaign: CandidateCampaign,
+    user: User,
+    user_interest_weights: dict[uuid.UUID, float] | None = None,
+) -> Impression:
     """Record that a campaign won an auction: charge it for the win and
     log an impression capturing the full decision-time context.
 
@@ -483,10 +591,10 @@ def record_win(db: Session, campaign: CandidateCampaign, user: User) -> Impressi
     allocation and should never be modified after creation, so "remaining
     budget" stays a computed value (budget - spent) rather than something
     stored and mutated directly. The impression snapshots the user's
-    attributes and interests as they are right now, since a planned future
-    step will make user interests mutable over time - without this
-    snapshot, this historical record would silently become inaccurate
-    once that ships.
+    attributes and interests as they are right now, since user interests
+    (and now their weights - see Step 8b, STUDY_NOTES.md §21/§22) mutate
+    over time - without this snapshot, this historical record would
+    silently drift from what was actually true at decision time.
 
     Args:
         db: Active database session.
@@ -494,16 +602,51 @@ def record_win(db: Session, campaign: CandidateCampaign, user: User) -> Impressi
             lightweight CandidateCampaign returned by pick_winner, never
             session-attached, so it can only be used for its `.id` here.
         user: The user the auction was run for.
+        user_interest_weights: The SAME dict passed to the pick_winner
+            call that chose this campaign (see run_auction) - deliberately
+            reused, not re-fetched, so the `score` persisted onto the
+            Impression row below always matches what actually decided the
+            winner. Re-fetching here instead would risk a subtle
+            inconsistency: a click landing between pick_winner and
+            record_win (vanishingly unlikely in one request, but a real
+            possibility once fully async) could change the weights
+            mid-request, making the logged score describe a decision that
+            wasn't actually the one made.
 
     Returns:
         The newly created Impression row.
     """
-    # campaign is a lightweight CandidateCampaign (from get_campaign_candidates/
-    # pick_winner), never loaded by this session - only a real,
-    # session-attached Campaign can be written to and committed.
-    campaign = db.get(Campaign, campaign.id)
+    # `campaign` is a lightweight CandidateCampaign (from
+    # get_campaign_candidates/pick_winner), never session-attached, but it
+    # already carries its targeting and interest ids in memory from the
+    # candidate cache - so scoring it directly costs nothing. Scoring a
+    # re-fetched ORM Campaign instead would lazy-load `targeting` and then
+    # `targeting.interests`: two round trips for data already in hand.
+    score = score_campaign(campaign, user, user_interest_weights)
 
-    campaign.spent += COST_PER_WIN
+    # Charge the win with a database-side increment, NOT a Python-side one.
+    # `campaign.spent += COST_PER_WIN` reads the current value into this
+    # process, adds to it here, and writes the result back - so two workers
+    # that win this same campaign concurrently both read the same starting
+    # value, both write the same result, and one charge silently vanishes
+    # (a lost update). Letting Postgres evaluate `spent + 0.50` inside the
+    # UPDATE makes the read and the write one atomic, row-locked operation,
+    # so concurrent wins queue behind each other and every charge lands.
+    #
+    # This also removes the SELECT that loading a session-attached Campaign
+    # used to require: nothing here needs any of the row's other columns.
+    #
+    # Note what this does NOT do: it doesn't enforce the budget ceiling.
+    # Eligibility (spent + COST_PER_WIN <= budget) is checked against the
+    # candidate cache, which is up to CANDIDATES_MAX_STALE_SECONDS old, so
+    # a campaign can still be charged slightly past its budget. That's a
+    # separate concern from losing charges outright, and the fix for it is
+    # a conditional UPDATE whose rowcount decides whether the win counts.
+    db.execute(
+        update(Campaign)
+        .where(Campaign.id == campaign.id)
+        .values(spent=Campaign.spent + COST_PER_WIN)
+    )
 
     impression = Impression(
         user_id=user.id,
@@ -512,10 +655,12 @@ def record_win(db: Session, campaign: CandidateCampaign, user: User) -> Impressi
         user_age=compute_age(user.birthdate),
         user_country=user.country,
         user_device_type=user.device_type,
-        score=score_campaign(campaign, user),
+        score=score,
         interests=list(user.interests),
     )
     db.add(impression)
     db.commit()
-    db.refresh(impression)
+    # No db.refresh() here: SessionLocal sets expire_on_commit=False, so
+    # every attribute the caller reads (notably `id`) is already populated
+    # in memory. Refreshing would be a third round trip for data we wrote.
     return impression
