@@ -451,7 +451,7 @@
     The most interesting part of this project is the corrections: an eager-loading strategy that was
     right in theory and wrong at this data volume,
     a cache that made single requests 3&times; faster and concurrent throughput 40% worse, a 44 ms
-    stall that turned out not to exist in production, and four database indexes added on a prediction
+    stall that was absent from production entirely, and four database indexes added on a prediction
     and dropped once the usage statistics disagreed.
   </p>
   <p>
@@ -702,7 +702,7 @@
         </g>
       </svg>
     </div>
-    <figcaption>Three strategies, measured. &ldquo;The generally recommended approach&rdquo; and &ldquo;the fastest approach for this workload&rdquo; turned out to be different answers.</figcaption>
+    <figcaption>Three strategies, measured. The approach generally recommended for many-to-many collections was not the fastest one for this specific data volume.</figcaption>
   </figure>
 
   <h3>Then Locust found the connection pool</h3>
@@ -766,14 +766,14 @@
     <span class="act-num">ACT III</span>
     <h2>The cache that made it worse</h2>
   </div>
-  <p class="lede">Redis made a single request 3&times; faster and cut concurrent throughput by 40%. Twice, for two entirely different reasons.</p>
+  <p class="lede">Redis made a single request 3&times; faster and cut concurrent throughput by 40%, from two separate causes investigated one after the other.</p>
 
   <p>
     Caching the eligible-campaign computation is the obvious move: the candidate list barely changes
     between one request and the next, yet it was being recomputed from scratch every time. Measured on
     sequential single requests, it was a clean win &mdash; 0.518 s cold, 0.167 s warm, roughly 3&times;.
   </p>
-  <p>Then it went under load.</p>
+  <p>Measured next under concurrent load, the result changed.</p>
 
   <div class="tbl-scroll">
     <table>
@@ -1017,7 +1017,7 @@
     while the <em>headroom estimate</em> built on it was invalid.
   </p>
 
-  <h3>py-spy, and a red herring worth keeping</h3>
+  <h3>py-spy, and a 43 ms stall later disproved</h3>
   <p>
     Sampling the live server under real load showed <code>_deserialize_candidates</code> consuming
     <strong>51.1%</strong> of CPU samples &mdash; every request was still rebuilding ~9,300 objects that
@@ -1094,7 +1094,7 @@
   <p>
     At 600 users the server stalled completely. Zero requests completed
     in 48 seconds. Postgres sat pinned at exactly <strong>80.0 of 80</strong> connections
-    idle-in-transaction, static, not fluctuating. Worker CPU was 3.4%.
+    idle-in-transaction, completely static across the sample window. Worker CPU was 3.4%.
   </p>
   <p>
     The answer came from the server's own log rather than more theorising: a real
@@ -1246,7 +1246,7 @@
     <code>campaign.spent += COST_PER_WIN</code> reads the value into Python, adds, and writes it back.
     Three operations, and another worker can land between them. Two workers winning the same campaign
     concurrently both read the same starting value, both write the same result, and one charge vanishes.
-    Under <code>READ COMMITTED</code>, Postgres will not stop this.
+    Under <code>READ COMMITTED</code>, Postgres permits this.
   </p>
   <p>
     Passing tests do not prove a race is fixed, so it was proven with a forced collision: 10 threads
@@ -1522,7 +1522,7 @@
 <section id="observe" class="wrap act reveal">
   <div class="act-head">
     <span class="act-num">ACT VII</span>
-    <h2>Instrumentation, and a metric that lied</h2>
+    <h2>Instrumentation, and a metric that was wrong</h2>
   </div>
   <p class="lede">The library's own documented one-liner produced plausible, real-looking numbers that were wrong on every scrape.</p>
 
