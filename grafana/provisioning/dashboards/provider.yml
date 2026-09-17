@@ -1,0 +1,18 @@
+# Tells Grafana to load dashboard JSON from a directory on disk, rather
+# than expecting them to be created through the UI. Same reasoning as the
+# datasource file next door: the repo is the source of truth.
+apiVersion: 1
+
+providers:
+  - name: adserve
+    orgId: 1
+    folder: AdServe
+    type: file
+    # Stops someone editing a panel in the UI and having it silently
+    # diverge from the JSON in the repo - edits are possible but Grafana
+    # will not persist them over the provisioned definition.
+    disableDeletion: false
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

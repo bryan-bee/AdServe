@@ -21,7 +21,11 @@ pytest-asyncio==0.25.0
 # --- Caching (step 7) ---
 redis==5.2.1
 
+# --- Event streaming (step 8) ---
+confluent-kafka==2.6.1
+
+# --- Metrics (step 9) ---
+prometheus-fastapi-instrumentator==7.0.0
+
 # --- Added at their build step ---
-# confluent-kafka==2.6.1        # step 8
-# prometheus-fastapi-instrumentator==7.0.0  # step 9
 # scikit-learn==1.6.0           # ranking/CTR work

@@ -1,0 +1,15 @@
+# Prometheus's own config: what to scrape, and how often. Mounted into the
+# prometheus container by docker-compose.yaml.
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: adserve
+    static_configs:
+      # host.docker.internal resolves to the Windows host from inside a
+      # Docker Desktop container - the app runs natively on the host
+      # (python -m uvicorn ...), not in a container, so "localhost" from
+      # inside this container would mean the container itself, not the
+      # host. See STUDY_NOTES.md §23 for why the app has to be bound to
+      # 0.0.0.0, not 127.0.0.1, for this to actually be reachable.
+      - targets: ["host.docker.internal:8000"]

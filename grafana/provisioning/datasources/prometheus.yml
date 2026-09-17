@@ -1,0 +1,24 @@
+# Grafana reads this at startup and creates the datasource automatically.
+#
+# Provisioned as a file rather than clicked in through the UI (or POSTed to
+# the API, which is how it was first set up in §23) for one specific
+# reason: anything created through the UI lives only in Grafana's internal
+# SQLite database inside the container. Recreate the container without its
+# volume and it's gone, and nothing in the repo records it ever existed.
+# This file IS the definition - version-controlled, reviewable, and
+# identical on every machine that runs `docker compose up`.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    # Fixed uid so dashboard JSON can reference this datasource by a stable
+    # identifier. Without it Grafana generates a random uid per install and
+    # every dashboard's datasource reference breaks on a fresh machine.
+    uid: adserve-prometheus
+    # Service name on the compose network - Grafana and Prometheus are both
+    # containers, so they reach each other directly, never via localhost.
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
