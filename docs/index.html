@@ -942,13 +942,13 @@
   <p>
     Rather than implement and hope, a microbenchmark built the same 2,257 candidates both ways:
     real ORM objects versus plain <code>@dataclass(slots=True)</code> equivalents exposing the same
-    attribute names. <strong>80.9 ms &rarr; 10.7 ms, a 7.6&times; speedup</strong>, confirming the cost
-    confirming that SQLAlchemy's instrumentation caused the overhead.
+    attribute names. <strong>80.9 ms &rarr; 10.7 ms, a 7.6&times; speedup</strong>, confirming that
+    SQLAlchemy's instrumentation caused the overhead.
   </p>
   <p>
     The expected test rewrite turned out to be unnecessary. <code>matches_targeting</code> and
-    <code>score_campaign</code> rely only on the attributes of what they receive; they do not
-    read attributes. Duck typing meant a test constructing a real <code>AudienceTargeting</code> and
+    <code>score_campaign</code> read only the attributes of what they receive and do not check its
+    concrete type. Duck typing meant a test constructing a real <code>AudienceTargeting</code> and
     production handing over a <code>CandidateTargeting</code> were indistinguishable. All 18 tests
     passed with zero changes.
   </p>
