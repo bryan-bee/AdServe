@@ -13,5 +13,6 @@ class Conversion(Base):
 
     __tablename__ = "conversions"
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    click_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("clicks.id", ondelete="CASCADE"), nullable=False)
+    # Indexed for the same reason as impressions' foreign keys - see §28.
+    click_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("clicks.id", ondelete="CASCADE"), nullable=False, index=True)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
