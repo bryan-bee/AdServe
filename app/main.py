@@ -1,7 +1,11 @@
 from contextlib import asynccontextmanager
+import os
 
 import anyio.to_thread
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
+from fastapi.middleware.cors import CORSMiddleware
+from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, generate_latest, multiprocess
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.api.routes.health import router as health_router
 from app.core.config import settings
@@ -11,6 +15,7 @@ from app.api.routes.campaigns import router as campaigns_router
 from app.api.routes.auction import router as auction_router
 from app.api.routes.impressions import router as impressions_router
 from app.api.routes.clicks import router as clicks_router
+from app.api.routes.analytics import router as analytics_router
 
 
 @asynccontextmanager
@@ -57,3 +62,63 @@ app.include_router(campaigns_router, prefix="/campaigns", tags=["campaigns"])
 app.include_router(auction_router, prefix="/auction", tags=["auction"])
 app.include_router(impressions_router, prefix="/impressions", tags=["impressions"])
 app.include_router(clicks_router, prefix="/clicks", tags=["clicks"])
+app.include_router(analytics_router, prefix="/analytics", tags=["analytics"])
+
+# The React dashboard (frontend/) is served by Vite on its own port during
+# development, which makes every request to this API cross-origin - the
+# browser blocks the response unless the server explicitly opts in. Scoped
+# to the Vite dev origins only, with credentials off: a wildcard "*" here
+# would let any website on the internet read this API using a visitor's
+# browser, which is exactly the thing CORS exists to prevent.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "X-API-Key", "Idempotency-Key"],
+)
+
+# .instrument(app) records every route's request count, latency histogram,
+# and status code via ASGI middleware - this part is identical whether
+# there's one worker or many, since every worker independently records its
+# own requests either way.
+instrumentator = Instrumentator().instrument(app)
+
+# Exposing those metrics is NOT identical across worker counts, and this
+# is a real bug that was caught by actually scraping /metrics under
+# `uvicorn --workers 4` rather than assuming Instrumentator().expose(app)
+# would just work: each worker is a SEPARATE OS process with its OWN
+# in-memory Counter/Histogram objects. `uvicorn --workers N` load-balances
+# incoming connections across those processes, so a plain
+# `Instrumentator().expose(app)` answers GET /metrics from whichever ONE
+# worker happens to receive that specific request - repeated scrapes
+# return DIFFERENT, inconsistent numbers depending on which worker
+# answered, not the true total across the fleet. Confirmed directly:
+# curling /metrics six times in a row cycled between three different
+# values (5, 6, 33) for the exact same counter - see STUDY_NOTES.md §23.
+#
+# The fix is prometheus_client's own multiprocess mode: when
+# PROMETHEUS_MULTIPROC_DIR is set (before this module - and therefore
+# every metric object in app/core/metrics.py - is first imported in each
+# worker), every Counter/Histogram automatically writes its values to a
+# per-PID file in that directory instead of pure in-memory state. A
+# request for /metrics then needs to build a FRESH CollectorRegistry and
+# MultiProcessCollector on every single call (not once at startup) - that
+# collector's whole job is reading and merging every worker's file at
+# scrape time, so it must re-read the directory fresh each time, not
+# cache a stale in-memory view from whenever it happened to be built.
+#
+# PROMETHEUS_MULTIPROC_DIR must also be emptied once before workers start
+# (not from inside this per-worker module) - see the startup command in
+# STUDY_NOTES.md §23 - otherwise files left behind by a PREVIOUS run's
+# now-dead worker PIDs get merged in forever alongside the current run.
+if "PROMETHEUS_MULTIPROC_DIR" in os.environ:
+    @app.get("/metrics")
+    def metrics():
+        registry = CollectorRegistry()
+        multiprocess.MultiProcessCollector(registry)
+        return Response(generate_latest(registry), media_type=CONTENT_TYPE_LATEST)
+else:
+    # Single-process case (tests via TestClient, or a plain `uvicorn`
+    # run with no --workers) - no cross-process merging needed, so
+    # Instrumentator's own default in-memory exposition is correct as-is.
+    instrumentator.expose(app)
