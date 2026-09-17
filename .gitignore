@@ -52,3 +52,7 @@ desktop.ini
 CLAUDE.md
 ROADMAP.md
 STUDY_NOTES.md
+
+# --- Frontend (step 9) ---
+node_modules/
+frontend/dist/
