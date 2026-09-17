@@ -1,0 +1,2007 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%89%3C/text%3E%3C/svg%3E">
+<title>AdServe Engineering Logbook</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+<style>
+  :root {
+    --bg: #F2F5F8;
+    --surface: #FFFFFF;
+    --surface-2: #E7ECF1;
+    --line: #CFD9E2;
+    --line-soft: #E2E9EF;
+    --ink: #101820;
+    --ink-2: #33414F;
+    --ink-dim: #5C6E7E;
+    --accent: #9A6210;
+    --accent-bright: #C07C14;
+    --accent-wash: rgba(192, 124, 20, 0.10);
+    --good: #15704A;
+    --good-wash: rgba(21, 112, 74, 0.10);
+    --bad: #A82F2A;
+    --bad-wash: rgba(168, 47, 42, 0.10);
+    --grid: rgba(16, 24, 32, 0.09);
+
+    --display: "IBM Plex Sans Condensed", "Helvetica Neue", Arial, sans-serif;
+    --body: "Source Serif 4", Georgia, "Times New Roman", serif;
+    --mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0C1116;
+      --surface: #131B23;
+      --surface-2: #1B242E;
+      --line: #27343F;
+      --line-soft: #1E2932;
+      --ink: #DFE7EE;
+      --ink-2: #B6C4D0;
+      --ink-dim: #8194A5;
+      --accent: #E9A53F;
+      --accent-bright: #F2B85E;
+      --accent-wash: rgba(233, 165, 63, 0.12);
+      --good: #52B981;
+      --good-wash: rgba(82, 185, 129, 0.13);
+      --bad: #E8756B;
+      --bad-wash: rgba(232, 117, 107, 0.13);
+      --grid: rgba(223, 231, 238, 0.10);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #0C1116;
+    --surface: #131B23;
+    --surface-2: #1B242E;
+    --line: #27343F;
+    --line-soft: #1E2932;
+    --ink: #DFE7EE;
+    --ink-2: #B6C4D0;
+    --ink-dim: #8194A5;
+    --accent: #E9A53F;
+    --accent-bright: #F2B85E;
+    --accent-wash: rgba(233, 165, 63, 0.12);
+    --good: #52B981;
+    --good-wash: rgba(82, 185, 129, 0.13);
+    --bad: #E8756B;
+    --bad-wash: rgba(232, 117, 107, 0.13);
+    --grid: rgba(223, 231, 238, 0.10);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 17px;
+    line-height: 1.68;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- scroll progress + nav ---------- */
+
+  .progress-track {
+    position: fixed;
+    top: env(safe-area-inset-top, 0px);
+    left: 0; right: 0;
+    height: 2px;
+    background: var(--line-soft);
+    z-index: 60;
+  }
+  .progress-bar {
+    height: 100%;
+    background: var(--accent);
+    transform-origin: 0 50%;
+    transform: scaleX(0);
+  }
+  @supports (animation-timeline: scroll()) {
+    .progress-bar {
+      animation: progress-grow linear;
+      animation-timeline: scroll(root block);
+    }
+  }
+  @keyframes progress-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+  .railnav {
+    position: fixed;
+    left: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 50;
+    display: none;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 0;
+  }
+  @media (min-width: 1240px) { .railnav { display: flex; } }
+  .railnav a {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    text-decoration: none;
+    color: var(--ink-dim);
+    font-family: var(--display);
+    font-size: 11.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 3px 0;
+    opacity: 0.62;
+    transition: opacity 0.2s, color 0.2s;
+  }
+  .railnav a::before {
+    content: "";
+    width: 16px; height: 2px;
+    background: currentColor;
+    flex: none;
+    transition: width 0.2s;
+  }
+  .railnav a:hover { opacity: 1; color: var(--ink); }
+  .railnav a.on { opacity: 1; color: var(--accent); }
+  .railnav a.on::before { width: 30px; }
+
+  /* ---------- layout ---------- */
+
+  .wrap {
+    max-width: 880px;
+    margin: 0 auto;
+    padding-inline: 20px;
+  }
+  .wrap-wide { max-width: 1120px; margin: 0 auto; padding-inline: 20px; }
+
+  section { padding-block: 72px 24px; }
+
+  /* ---------- reveal on scroll ---------- */
+
+  @media (prefers-reduced-motion: no-preference) {
+    @supports (animation-timeline: view()) {
+      .reveal {
+        animation: reveal-in linear both;
+        animation-timeline: view();
+        animation-range: entry 2% entry 42%;
+      }
+    }
+  }
+  @keyframes reveal-in {
+    from { opacity: 0; transform: translateY(26px); }
+    to   { opacity: 1; transform: none; }
+  }
+
+  /* ---------- type ---------- */
+
+  h1, h2, h3, h4 { font-family: var(--display); font-weight: 700; text-wrap: balance; margin: 0; }
+  h2 { font-size: clamp(30px, 4.4vw, 42px); line-height: 1.1; letter-spacing: -0.015em; }
+  h3 { font-size: 23px; line-height: 1.24; margin-top: 44px; letter-spacing: -0.005em; }
+  h4 { font-size: 16.5px; margin-top: 30px; letter-spacing: 0.01em; }
+  p { margin: 15px 0; color: var(--ink-2); }
+  a { color: var(--accent); }
+
+  strong { color: var(--ink); font-weight: 600; }
+  code {
+    font-family: var(--mono);
+    font-size: 0.855em;
+    background: var(--surface-2);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--ink);
+  }
+
+  .eyebrow {
+    font-family: var(--display);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 12px;
+  }
+  .lede { font-size: 19.5px; color: var(--ink-2); }
+  .sec-no {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-dim);
+    letter-spacing: 0.08em;
+  }
+
+  /* ---------- hero ---------- */
+
+  .hero { padding-block: 64px 30px; border-bottom: 1px solid var(--line); }
+  .hero h1 {
+    font-size: clamp(42px, 8vw, 78px);
+    line-height: 0.98;
+    letter-spacing: -0.03em;
+    margin-bottom: 20px;
+  }
+  .hero .sub { font-size: clamp(18px, 2.4vw, 21px); color: var(--ink-2); max-width: 30em; }
+  .hero-meta {
+    display: flex; flex-wrap: wrap; gap: 8px 22px;
+    margin-top: 26px;
+    font-family: var(--mono); font-size: 12.5px; color: var(--ink-dim);
+  }
+  .hero-meta span { display: flex; align-items: center; gap: 7px; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
+
+  /* ---------- stat strip ---------- */
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    margin-top: 40px;
+  }
+  .stat { background: var(--surface); padding: 17px 18px; }
+  .stat .k {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--ink-dim); display: block; margin-bottom: 7px;
+  }
+  .stat .v { font-family: var(--display); font-size: 27px; font-weight: 700; line-height: 1; letter-spacing: -0.01em; }
+  .stat .n { font-size: 12px; color: var(--ink-dim); font-family: var(--body); margin-top: 6px; }
+
+  /* ---------- figures ---------- */
+
+  figure { margin: 34px 0; }
+  figure svg { display: block; width: 100%; height: auto; max-width: 100%; }
+  figcaption {
+    font-family: var(--display);
+    font-size: 13px;
+    color: var(--ink-dim);
+    margin-top: 11px;
+    line-height: 1.45;
+    border-left: 2px solid var(--accent);
+    padding-left: 11px;
+  }
+  .fig-frame {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    padding: 20px 18px;
+    overflow-x: auto;
+  }
+
+  /* ---------- callouts ---------- */
+
+  .callout {
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    background: var(--surface);
+    padding: 17px 19px;
+    margin: 28px 0;
+  }
+  .callout.bad { border-left-color: var(--bad); }
+  .callout.good { border-left-color: var(--good); }
+  .callout .tag {
+    font-family: var(--display); font-size: 11.5px; font-weight: 700;
+    letter-spacing: 0.13em; text-transform: uppercase; color: var(--accent);
+    display: block; margin-bottom: 8px;
+  }
+  .callout.bad .tag { color: var(--bad); }
+  .callout.good .tag { color: var(--good); }
+  .callout p { margin: 0; }
+  .callout p + p { margin-top: 11px; }
+
+  /* ---------- tables ---------- */
+
+  .tbl-scroll { overflow-x: auto; margin: 26px 0; border: 1px solid var(--line); background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-family: var(--mono); font-size: 13px; min-width: 460px; }
+  th {
+    text-align: left; font-family: var(--display); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-dim);
+    padding: 11px 14px; border-bottom: 1px solid var(--line); white-space: nowrap;
+  }
+  td { padding: 10px 14px; border-bottom: 1px solid var(--line-soft); color: var(--ink-2); }
+  tr:last-child td { border-bottom: none; }
+  td.num, th.num { text-align: right; }
+  .win { color: var(--good); font-weight: 500; }
+  .loss { color: var(--bad); font-weight: 500; }
+
+  /* ---------- code ---------- */
+
+  pre {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--line);
+    padding: 15px 17px;
+    overflow-x: auto;
+    margin: 24px 0;
+    font-family: var(--mono);
+    font-size: 12.7px;
+    line-height: 1.62;
+    color: var(--ink-2);
+  }
+  pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
+  pre .cm { color: var(--ink-dim); }
+  pre .hl { color: var(--accent); }
+  pre .rm { color: var(--bad); }
+  pre .ad { color: var(--good); }
+
+  /* ---------- verdict rows ---------- */
+
+  .verdict {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 14px;
+    align-items: stretch;
+    margin: 26px 0;
+  }
+  @media (max-width: 620px) { .verdict { grid-template-columns: 1fr; } }
+  .vbox { border: 1px solid var(--line); background: var(--surface); padding: 15px 16px; }
+  .vbox .vk {
+    font-family: var(--display); font-size: 11px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--ink-dim); display: block; margin-bottom: 8px;
+  }
+  .vbox .vv { font-family: var(--mono); font-size: 19px; line-height: 1.3; }
+  .vbox.before .vv { color: var(--bad); }
+  .vbox.after .vv { color: var(--good); }
+  .varrow {
+    display: flex; align-items: center; justify-content: center;
+    color: var(--ink-dim); font-family: var(--mono); font-size: 18px;
+  }
+  @media (max-width: 620px) { .varrow { transform: rotate(90deg); padding: 2px 0; } }
+
+  /* ---------- act divider ---------- */
+
+  .act {
+    border-top: 1px solid var(--line);
+    padding-top: 30px;
+    margin-top: 40px;
+  }
+  .act-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; }
+  .act-num {
+    font-family: var(--mono); font-size: 12px; color: var(--accent);
+    letter-spacing: 0.1em; border: 1px solid var(--accent); padding: 2px 7px;
+  }
+
+  /* ---------- toolbar ---------- */
+
+  .tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 22px 0 6px; }
+  .tool {
+    font-family: var(--mono); font-size: 11.5px;
+    border: 1px solid var(--line); background: var(--surface-2);
+    color: var(--ink-2); padding: 4px 9px;
+  }
+
+  footer {
+    border-top: 1px solid var(--line);
+    margin-top: 60px;
+    padding-block: 36px 60px;
+    color: var(--ink-dim);
+    font-family: var(--display);
+    font-size: 13.5px;
+  }
+
+  ul.tight { margin: 15px 0; padding-left: 20px; color: var(--ink-2); }
+  ul.tight li { margin: 8px 0; }
+
+  .theme-btn {
+    position: fixed; top: calc(env(safe-area-inset-top, 0px) + 14px); right: 16px;
+    z-index: 61;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em;
+    background: var(--surface); color: var(--ink-2);
+    border: 1px solid var(--line); padding: 6px 10px; cursor: pointer;
+  }
+  .theme-btn:hover { color: var(--ink); border-color: var(--ink-dim); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+</head>
+<body>
+
+
+<div class="progress-track"><div class="progress-bar"></div></div>
+<button class="theme-btn" id="themeToggle" type="button">theme</button>
+
+<nav class="railnav" id="rail" aria-label="Section navigation">
+  <a href="#system">System</a>
+  <a href="#load">Load</a>
+  <a href="#cache">Cache</a>
+  <a href="#ceiling">Ceiling</a>
+  <a href="#write">Write path</a>
+  <a href="#events">Events</a>
+  <a href="#observe">Observe</a>
+  <a href="#harden">Harden</a>
+  <a href="#surface">Surface</a>
+  <a href="#reckoning">Reckoning</a>
+</nav>
+
+<header class="hero wrap">
+  <div class="eyebrow">Engineering logbook &middot; 31 investigations</div>
+  <h1>AdServe</h1>
+  <p class="sub">A real-time ad auction platform, and a record of every time the measurement disagreed with the plan.</p>
+  <div class="hero-meta">
+    <span><i class="dot"></i>FastAPI &middot; Postgres &middot; Redis &middot; Kafka</span>
+    <span><i class="dot"></i>Prometheus &middot; Grafana &middot; React</span>
+    <span><i class="dot"></i>2M users &middot; 23K campaigns</span>
+  </div>
+
+  <div class="stats">
+    <div class="stat">
+      <span class="k">Peak throughput</span>
+      <span class="v">1,152<span style="font-size:15px;color:var(--ink-dim)"> rps</span></span>
+      <div class="n">from 7.8 at the first load test</div>
+    </div>
+    <div class="stat">
+      <span class="k">Median latency</span>
+      <span class="v">78<span style="font-size:15px;color:var(--ink-dim)"> ms</span></span>
+      <div class="n">was 3,100 ms under the same load shape</div>
+    </div>
+    <div class="stat">
+      <span class="k">Revenue bug</span>
+      <span class="v">90<span style="font-size:15px;color:var(--ink-dim)">%</span></span>
+      <div class="n">of charges silently lost to a race</div>
+    </div>
+    <div class="stat">
+      <span class="k">Decisions reversed</span>
+      <span class="v">4</span>
+      <div class="n">by measurement, after being wrong</div>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ================= THESIS ================= -->
+<section class="wrap reveal">
+  <div class="eyebrow">The thesis</div>
+  <h2>Four times, a change that looked right by one measurement was wrong by another.</h2>
+  <p class="lede">
+    This project isn't interesting because it has Kafka in it. It's interesting because of the
+    corrections: an eager-loading strategy that was right in theory and wrong at this data volume,
+    a cache that made single requests 3&times; faster and concurrent throughput 40% worse, a 44 ms
+    stall that turned out not to exist in production, and four database indexes added on a prediction
+    and dropped once the usage statistics disagreed.
+  </p>
+  <p>
+    What follows is the full record, in the order it happened. Every number below was measured against
+    a fixed baseline on the same machine &mdash; the ones that made things worse are kept in as
+    carefully as the ones that worked, because the reversals are the part that took skill.
+  </p>
+
+  <figure class="reveal">
+    <div class="fig-frame">
+      <svg viewBox="0 0 860 258" role="img" aria-label="Throughput across the project on a logarithmic scale, rising from 7.8 requests per second to 1,152 across six measured stages, including a dip to 4.8 when caching was first added.">
+        <defs>
+          <marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--bad)"/>
+          </marker>
+        </defs>
+        <!-- log10 scale: y = 200 - (log10(v) - 0.6) / 2.5 * 170 -->
+        <g stroke="var(--grid)" stroke-width="1">
+          <line x1="62" y1="36.8" x2="840" y2="36.8"/>
+          <line x1="62" y1="104.8" x2="840" y2="104.8"/>
+          <line x1="62" y1="172.8" x2="840" y2="172.8"/>
+          <line x1="62" y1="200" x2="840" y2="200"/>
+        </g>
+        <g fill="var(--ink-dim)" font-family="IBM Plex Mono, monospace" font-size="10.5" text-anchor="end">
+          <text x="54" y="40.5">1000</text>
+          <text x="54" y="108.5">100</text>
+          <text x="54" y="176.5">10</text>
+        </g>
+        <text x="16" y="118" font-family="IBM Plex Sans Condensed, sans-serif" font-size="10" fill="var(--accent)" transform="rotate(-90 16 118)" text-anchor="middle">req / sec &mdash; log scale</text>
+
+        <polyline points="110,180 210,194.5 320,132.8 430,88.1 560,44.6 700,32.7"
+                  fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round"/>
+        <g fill="var(--accent)">
+          <circle cx="110" cy="180" r="4"/>
+          <circle cx="320" cy="132.8" r="4"/>
+          <circle cx="430" cy="88.1" r="4"/>
+          <circle cx="560" cy="44.6" r="4"/>
+          <circle cx="700" cy="32.7" r="4"/>
+        </g>
+        <circle cx="210" cy="194.5" r="4.5" fill="var(--bad)"/>
+        <g font-family="IBM Plex Sans Condensed, sans-serif" font-size="11.5" fill="var(--ink)" text-anchor="middle">
+          <text x="110" y="224">7.8</text>
+          <text x="210" y="224" fill="var(--bad)">4.8</text>
+          <text x="320" y="224">38.8</text>
+          <text x="430" y="224">175.9</text>
+          <text x="560" y="224">770</text>
+          <text x="700" y="224">1152</text>
+        </g>
+        <g font-family="IBM Plex Sans Condensed, sans-serif" font-size="10" fill="var(--ink-dim)" text-anchor="middle">
+          <text x="110" y="242">no cache</text>
+          <text x="210" y="242" fill="var(--bad)">cache added</text>
+          <text x="320" y="242">dataclasses</text>
+          <text x="430" y="242">memoized</text>
+          <text x="560" y="242">8 workers</text>
+          <text x="700" y="242">race fixed</text>
+        </g>
+        <line x1="210" y1="188" x2="210" y2="160" stroke="var(--bad)" stroke-width="1.5" marker-end="url(#ar)"/>
+        <text x="222" y="156" font-family="IBM Plex Sans Condensed, sans-serif" font-size="11.5" fill="var(--bad)">caching made it worse before it made it better</text>
+      </svg>
+    </div>
+    <figcaption>Requests per second across the life of the project. Every point is a Locust measurement, not a projection &mdash; and the second point is the one worth explaining.</figcaption>
+  </figure>
+</section>
+
+<!-- ================= ACT I ================= -->
+<section id="system" class="wrap act reveal">
+  <div class="act-head">
+    <span class="act-num">ACT I</span>
+    <h2>The system</h2>
+  </div>
+  <p class="lede">An ad auction is a ranking problem with a budget attached and a hard latency ceiling. Everything downstream comes from that shape.</p>
+
+  <p>
+    Every <code>POST /auction</code> carries a <code>user_id</code>. The service has to decide, in
+    milliseconds, which of ~23,000 campaigns is allowed to be shown to that specific person, rank the
+    survivors, pick one, charge the advertiser, and log enough context that the decision can be
+    audited later. There is no real traffic, so the project generates its own: 2,000,000 simulated
+    users, 5,000 advertisers, 40 interests, and a traffic simulator that produces realistic
+    impression/click/conversion chains.
+  </p>
+
+  <h3>Three separable stages, on purpose</h3>
+  <p>
+    The auction is deliberately split into <strong>filter &rarr; score &rarr; pick winner</strong>,
+    with a fourth side-effecting step kept apart from the rest. That separation is an ML-readiness
+    decision made early: <code>score_campaign</code> is the one function a trained model would
+    eventually replace, and it can be swapped without touching eligibility rules or auction mechanics.
+  </p>
+
+  <figure class="reveal">
+    <div class="fig-frame">
+      <svg viewBox="0 0 860 210" role="img" aria-label="The auction pipeline: a user id enters, campaigns are filtered by eligibility, scored, one winner is picked by weighted random selection, then the win is recorded as a charge and an impression.">
+        <defs>
+          <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ink-dim)"/>
+          </marker>
+        </defs>
+        <g font-family="IBM Plex Sans Condensed, sans-serif">
+          <!-- input -->
+          <rect x="8" y="64" width="96" height="50" fill="var(--surface-2)" stroke="var(--line)"/>
+          <text x="56" y="84" font-size="12" fill="var(--ink)" text-anchor="middle">POST</text>
+          <text x="56" y="100" font-size="11" fill="var(--ink-dim)" text-anchor="middle">/auction</text>
+
+          <line x1="106" y1="89" x2="140" y2="89" stroke="var(--ink-dim)" stroke-width="1.5" marker-end="url(#a2)"/>
+
+          <!-- filter -->
+          <rect x="142" y="52" width="150" height="74" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5"/>
+          <text x="217" y="74" font-size="12.5" fill="var(--ink)" text-anchor="middle" font-weight="600">filter</text>
+          <text x="217" y="91" font-size="10" fill="var(--ink-dim)" text-anchor="middle">status &middot; dates &middot; budget</text>
+          <text x="217" y="105" font-size="10" fill="var(--ink-dim)" text-anchor="middle">age &middot; country &middot; device</text>
+          <text x="217" y="119" font-size="10" fill="var(--ink-dim)" text-anchor="middle">interest overlap</text>
+
+          <line x1="294" y1="89" x2="326" y2="89" stroke="var(--ink-dim)" stroke-width="1.5" marker-end="url(#a2)"/>
+          <text x="310" y="80" font-size="9.5" fill="var(--ink-dim)" text-anchor="middle">~150</text>
+
+          <!-- score -->
+          <rect x="328" y="52" width="140" height="74" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5"/>
+          <text x="398" y="74" font-size="12.5" fill="var(--ink)" text-anchor="middle" font-weight="600">score</text>
+          <text x="398" y="92" font-size="10" fill="var(--ink-dim)" text-anchor="middle">1.0 + &Sigma; learned</text>
+          <text x="398" y="106" font-size="10" fill="var(--ink-dim)" text-anchor="middle">interest weights</text>
+
+          <line x1="470" y1="89" x2="502" y2="89" stroke="var(--ink-dim)" stroke-width="1.5" marker-end="url(#a2)"/>
+
+          <!-- pick -->
+          <rect x="504" y="52" width="140" height="74" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5"/>
+          <text x="574" y="74" font-size="12.5" fill="var(--ink)" text-anchor="middle" font-weight="600">pick winner</text>
+          <text x="574" y="92" font-size="10" fill="var(--ink-dim)" text-anchor="middle">weighted random,</text>
+          <text x="574" y="106" font-size="10" fill="var(--ink-dim)" text-anchor="middle">not argmax</text>
+
+          <line x1="646" y1="89" x2="678" y2="89" stroke="var(--ink-dim)" stroke-width="1.5" marker-end="url(#a2)"/>
+
+          <!-- record -->
+          <rect x="680" y="52" width="172" height="74" fill="var(--surface)" stroke="var(--line)"/>
+          <text x="766" y="74" font-size="12.5" fill="var(--ink)" text-anchor="middle" font-weight="600">record win</text>
+          <text x="766" y="92" font-size="10" fill="var(--ink-dim)" text-anchor="middle">charge spend (atomic)</text>
+          <text x="766" y="106" font-size="10" fill="var(--ink-dim)" text-anchor="middle">log impression</text>
+
+          <!-- pure/impure annotation -->
+          <line x1="142" y1="142" x2="644" y2="142" stroke="var(--good)" stroke-width="1" stroke-dasharray="4 3"/>
+          <text x="393" y="158" font-size="10.5" fill="var(--good)" text-anchor="middle">no side effects &mdash; safe to call repeatedly in tests</text>
+          <line x1="680" y1="142" x2="852" y2="142" stroke="var(--accent)" stroke-width="1" stroke-dasharray="4 3"/>
+          <text x="766" y="158" font-size="10.5" fill="var(--accent)" text-anchor="middle">the only writing step</text>
+
+          <text x="217" y="182" font-size="10.5" fill="var(--ink-dim)" text-anchor="middle">23,268 campaigns in</text>
+          <text x="398" y="182" font-size="10.5" fill="var(--ink-dim)" text-anchor="middle">swap point for a model</text>
+        </g>
+      </svg>
+    </div>
+    <figcaption>The pipeline. <code>pick_winner</code> is kept pure so an exploratory script can call it a thousand times without spending real budget &mdash; a mistake that was nearly made once, then designed out.</figcaption>
+  </figure>
+
+  <h3>Two decisions that shaped everything after</h3>
+  <p>
+    <strong>Weighted random, not argmax.</strong> The highest-scoring campaign does not always win;
+    odds are proportional to score. A deterministic winner would mean a broad campaign with weaker
+    targeting could never compete at all, which is neither how real auctions behave nor how
+    recommendation systems handle exploration. Verified statistically over 1,000 trials rather than
+    asserting one exact outcome, because the behaviour is intentionally probabilistic.
+  </p>
+  <p>
+    <strong>A baseline score of 1.0, always.</strong> Scoring pure interest overlap would give an
+    untargeted campaign a score of zero &mdash; and under weighted-random selection, zero means
+    mathematically excluded forever. Broad campaigns are legitimate and common, so every eligible
+    campaign carries a floor.
+  </p>
+
+  <div class="callout">
+    <span class="tag">Ad-tech detail</span>
+    <p>
+      A <strong>&ldquo;no fill&rdquo;</strong> &mdash; zero eligible campaigns for this user &mdash;
+      returns <code>204 No Content</code>, not <code>404</code>. Nothing about the request was invalid;
+      the auction ran correctly and there was simply no inventory. Treating a normal business outcome
+      as a client error is the kind of thing that poisons dashboards later.
+    </p>
+  </div>
+
+  <h3>The impression is a snapshot, not a set of pointers</h3>
+  <p>
+    Each <code>Impression</code> row stores the user's age, country, device and interests <em>as they
+    were at decision time</em>, rather than referencing the live user row. That looked like redundant
+    denormalisation early on. It became load-bearing much later, when interest weights started
+    changing from click behaviour &mdash; without the snapshot, historical records would have silently
+    drifted to describe decisions that were never actually made.
+  </p>
+</section>
+
+<!-- ================= ACT II ================= -->
+<section id="load" class="wrap act reveal">
+  <div class="act-head">
+    <span class="act-num">ACT II</span>
+    <h2>First contact with load</h2>
+  </div>
+  <p class="lede">A single auction request took 1.75 seconds. The fix was obvious. The <em>best</em> fix was not.</p>
+
+  <div class="tools">
+    <span class="tool">EXPLAIN ANALYZE</span>
+    <span class="tool">isolated timing</span>
+    <span class="tool">Locust</span>
+  </div>
+
+  <h3>The N+1, and why the recommended fix was the wrong one</h3>
+  <p>
+    <code>get_campaign_candidates</code> returned 2,263 campaigns with no eager loading. The Python
+    loop then touched <code>campaign.targeting</code> and <code>targeting.interests</code> on each one
+    &mdash; and every single access silently fired its own query. One query became roughly 4,500.
+  </p>
+  <p>
+    The textbook fix is <code>selectinload</code> for many-to-many collections, specifically because
+    it avoids the row duplication a join introduces. It took the request from 1.75 s to ~0.4 s. That
+    was a real 4&times; win, and stopping there would have been defensible.
+  </p>
+  <p>
+    Measuring one layer deeper showed it wasn't the best answer <em>at this data volume</em>. The plain
+    query alone was ~54 ms. Adding <code>joinedload(targeting)</code> barely moved it, ~41 ms. Adding
+    <code>selectinload(interests)</code> jumped it to ~343 ms &mdash; while <code>EXPLAIN ANALYZE</code>
+    showed the underlying data was cheap to fetch, ~13 ms via an equivalent plain join. The cost wasn't
+    the data. It was <code>selectinload</code>'s own mechanism: a single query carrying a literal
+    <code>WHERE targeting_id IN (...)</code> list of 2,263 individual UUID parameters.
+  </p>
+
+  <figure class="reveal">
+    <div class="fig-frame">
+      <svg viewBox="0 0 860 270" role="img" aria-label="Three loading strategies compared: lazy loading costs 1.75 seconds across 4,500 queries; selectinload costs 0.4 seconds in two queries but pays for a huge parameter list; joinedload for both relationships costs 0.15 to 0.28 seconds in one query.">
+        <g font-family="IBM Plex Sans Condensed, sans-serif">
+          <!-- row 1 -->
+          <text x="8" y="26" font-size="12" font-weight="700" fill="var(--bad)">LAZY (original)</text>
+          <rect x="8" y="36" width="820" height="34" fill="var(--bad-wash)" stroke="var(--bad)"/>
+          <text x="20" y="57" font-size="11.5" fill="var(--ink-2)">1 query for campaigns &rarr; then ~2,263 for targeting &rarr; then ~2,263 for interests</text>
+          <text x="820" y="57" font-size="14" font-family="IBM Plex Mono, monospace" fill="var(--bad)" text-anchor="end">1.75 s</text>
+
+          <!-- row 2 -->
+          <text x="8" y="106" font-size="12" font-weight="700" fill="var(--ink-dim)">joinedload + selectinload</text>
+          <rect x="8" y="116" width="188" height="34" fill="var(--surface-2)" stroke="var(--line)"/>
+          <text x="20" y="137" font-size="11.5" fill="var(--ink-2)">1 query: campaigns JOIN targeting</text>
+          <rect x="200" y="116" width="628" height="34" fill="var(--accent-wash)" stroke="var(--accent)" stroke-dasharray="4 3"/>
+          <text x="212" y="131" font-size="11.5" fill="var(--ink-2)">1 query: WHERE targeting_id IN ( ...2,263 literal UUIDs... )</text>
+          <text x="212" y="145" font-size="10" fill="var(--accent)">the parameter list itself is the cost &mdash; ~300 ms of the total</text>
+          <text x="820" y="107" font-size="14" font-family="IBM Plex Mono, monospace" fill="var(--ink-dim)" text-anchor="end">0.40 s</text>
+
+          <!-- row 3 -->
+          <text x="8" y="186" font-size="12" font-weight="700" fill="var(--good)">joinedload for BOTH</text>
+          <rect x="8" y="196" width="300" height="34" fill="var(--good-wash)" stroke="var(--good)"/>
+          <text x="20" y="217" font-size="11.5" fill="var(--ink-2)">1 query, rows de-duplicated in Python</text>
+          <text x="820" y="187" font-size="14" font-family="IBM Plex Mono, monospace" fill="var(--good)" text-anchor="end">0.15&ndash;0.28 s</text>
+
+          <line x1="8" y1="248" x2="828" y2="248" stroke="var(--grid)"/>
+          <text x="8" y="264" font-size="11" fill="var(--ink-dim)">Accepting join row-duplication beat avoiding it &mdash; because SQLAlchemy de-duplicates back to distinct objects for free.</text>
+        </g>
+      </svg>
+    </div>
+    <figcaption>Three strategies, measured. &ldquo;The generally recommended approach&rdquo; and &ldquo;the fastest approach for this workload&rdquo; turned out to be different answers.</figcaption>
+  </figure>
+
+  <h3>Then Locust found the connection pool</h3>
+  <p>
+    With the query fixed, the first real load tests went in. At 100 concurrent users, 21% of requests
+    failed outright.
+  </p>
+
+  <div class="tbl-scroll">
+    <table>
+      <thead>
+        <tr><th>Users</th><th class="num">Median</th><th class="num">p95</th><th class="num">p99</th><th class="num">Failures</th><th class="num">RPS</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>10</td><td class="num">240 ms</td><td class="num">500 ms</td><td class="num">610 ms</td><td class="num">0 / 554</td><td class="num">4.7</td></tr>
+        <tr><td>50</td><td class="num">3,100 ms</td><td class="num">6,600 ms</td><td class="num">9,100 ms</td><td class="num">0 / 537</td><td class="num">7.8</td></tr>
+        <tr><td>100 <span style="color:var(--ink-dim)">before</span></td><td class="num">2,900 ms</td><td class="num loss">32,000 ms</td><td class="num loss">32,000 ms</td><td class="num loss">23 / 107</td><td class="num loss">2.3</td></tr>
+        <tr><td>100 <span style="color:var(--ink-dim)">after</span></td><td class="num">11,000 ms</td><td class="num">14,000 ms</td><td class="num">16,000 ms</td><td class="num win">0 / 362</td><td class="num win">7.2</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    The diagnostic clue was that p95 and p99 both converged on almost exactly <strong>32,000 ms</strong>.
+    That is not a coincidental number &mdash; it is SQLAlchemy's default <code>pool_timeout</code> of 30
+    seconds plus overhead. With 15 total connections available (5 pool + 10 overflow) and 100
+    concurrent requests each needing one, the excess queued, and the unluckiest waited past the timeout
+    and errored.
+  </p>
+  <p>
+    RPS <em>dropping</em> from 7.8 to 2.3, rather than merely plateauing, was the signature that this
+    wasn't ordinary saturation &mdash; it was active degradation.
+  </p>
+
+  <div class="verdict">
+    <div class="vbox before"><span class="vk">Before &mdash; 15 connections</span><span class="vv">21% failed<br>2.3 rps</span></div>
+    <div class="varrow">&rarr;</div>
+    <div class="vbox after"><span class="vk">After &mdash; 50 connections</span><span class="vv">0 failed<br>7.2 rps</span></div>
+  </div>
+
+  <div class="callout">
+    <span class="tag">What was deliberately not done</span>
+    <p>
+      Two other fixes were on the table and both were <em>deferred rather than rejected</em>: pushing
+      age/country/device filtering into SQL, and caching the eligibility computation. Both would have
+      been partially superseded by the caching work already scheduled. The pool resize was chosen
+      because it was one line, targeted the specific already-diagnosed failure mode, and could be
+      confirmed by re-running the identical test.
+    </p>
+    <p>
+      Latency stayed bad &mdash; 11 s median at 100 users with zero failures. The pool was a real
+      bottleneck, correctly identified and fixed. It was never the <em>only</em> ceiling, and saying so
+      explicitly mattered more than the fix did.
+    </p>
+  </div>
+</section>
+
+<!-- ================= ACT III ================= -->
+<section id="cache" class="wrap act reveal">
+  <div class="act-head">
+    <span class="act-num">ACT III</span>
+    <h2>The cache that made it worse</h2>
+  </div>
+  <p class="lede">Redis made a single request 3&times; faster and cut concurrent throughput by 40%. Twice, for two entirely different reasons.</p>
+
+  <p>
+    Caching the eligible-campaign computation is the obvious move: the candidate list barely changes
+    between one request and the next, yet it was being recomputed from scratch every time. Measured on
+    sequential single requests, it was a clean win &mdash; 0.518 s cold, 0.167 s warm, roughly 3&times;.
+  </p>
+  <p>Then it went under load.</p>
+
+  <div class="tbl-scroll">
+    <table>
+      <thead><tr><th>Configuration</th><th class="num">50 users</th><th class="num">100 users</th></tr></thead>
+      <tbody>
+        <tr><td>No cache</td><td class="num">3,100 ms &middot; 7.8 rps</td><td class="num">11,000 ms &middot; 7.2 rps</td></tr>
+        <tr><td>With cache</td><td class="num loss">7,800 ms &middot; 4.8 rps</td><td class="num loss">15,000 ms &middot; 4.8 rps</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Regression 1 &mdash; the stampede, caught with <code>redis-cli MONITOR</code></h3>
+  <p>
+    <code>MONITOR</code> streams every command Redis receives, with timestamps. Over a 25-second test
+    with a 5-second TTL, the expected number of <code>SETEX</code> calls is about 5 &mdash; one per
+    expiry. The actual count was <strong>69</strong>, arriving in bursts of 10, then 14, then 18, then
+    27, each burst lining up exactly with a TTL expiry and each one worse than the last as Locust
+    ramped concurrency.
+  </p>
+  <p>
+    That is a <strong>cache stampede</strong>: the instant the entry expires, every concurrent request
+    misses simultaneously and independently redoes the same expensive query. The backend now takes a
+    recurring burst of identical redundant load that it never took before. Worse than no caching, not
+    merely equal to it.
+  </p>
+
+  <figure class="reveal">
+    <div class="fig-frame">
+      <svg viewBox="0 0 860 210" role="img" aria-label="Expected cache refreshes versus observed. Five evenly spaced refreshes were expected over 25 seconds; 69 occurred, clustered into four growing bursts at each TTL expiry.">
+        <g font-family="IBM Plex Sans Condensed, sans-serif">
+          <text x="8" y="22" font-size="11.5" font-weight="700" fill="var(--good)">EXPECTED &mdash; 5 refreshes, one per TTL expiry</text>
+          <line x1="8" y1="52" x2="828" y2="52" stroke="var(--grid)"/>
+          <g fill="var(--good)">
+            <rect x="166" y="38" width="3" height="14"/>
+            <rect x="330" y="38" width="3" height="14"/>
+            <rect x="494" y="38" width="3" height="14"/>
+            <rect x="658" y="38" width="3" height="14"/>
+            <rect x="822" y="38" width="3" height="14"/>
+          </g>
+
+          <text x="8" y="100" font-size="11.5" font-weight="700" fill="var(--bad)">OBSERVED &mdash; 69 refreshes, in growing bursts</text>
+          <line x1="8" y1="160" x2="828" y2="160" stroke="var(--grid)"/>
+          <g fill="var(--bad)">
+            <!-- burst 1: 10 -->
+            <rect x="150" y="128" width="2.5" height="32"/><rect x="154" y="128" width="2.5" height="32"/><rect x="158" y="128" width="2.5" height="32"/><rect x="162" y="128" width="2.5" height="32"/><rect x="166" y="128" width="2.5" height="32"/><rect x="170" y="128" width="2.5" height="32"/><rect x="174" y="128" width="2.5" height="32"/><rect x="178" y="128" width="2.5" height="32"/><rect x="182" y="128" width="2.5" height="32"/><rect x="186" y="128" width="2.5" height="32"/>
+            <!-- burst 2: 14 -->
+            <rect x="306" y="118" width="2.5" height="42"/><rect x="310" y="118" width="2.5" height="42"/><rect x="314" y="118" width="2.5" height="42"/><rect x="318" y="118" width="2.5" height="42"/><rect x="322" y="118" width="2.5" height="42"/><rect x="326" y="118" width="2.5" height="42"/><rect x="330" y="118" width="2.5" height="42"/><rect x="334" y="118" width="2.5" height="42"/><rect x="338" y="118" width="2.5" height="42"/><rect x="342" y="118" width="2.5" height="42"/><rect x="346" y="118" width="2.5" height="42"/><rect x="350" y="118" width="2.5" height="42"/><rect x="354" y="118" width="2.5" height="42"/><rect x="358" y="118" width="2.5" height="42"/>
+            <!-- burst 3: 18 -->
+            <rect x="458" y="106" width="2.5" height="54"/><rect x="462" y="106" width="2.5" height="54"/><rect x="466" y="106" width="2.5" height="54"/><rect x="470" y="106" width="2.5" height="54"/><rect x="474" y="106" width="2.5" height="54"/><rect x="478" y="106" width="2.5" height="54"/><rect x="482" y="106" width="2.5" height="54"/><rect x="486" y="106" width="2.5" height="54"/><rect x="490" y="106" width="2.5" height="54"/><rect x="494" y="106" width="2.5" height="54"/><rect x="498" y="106" width="2.5" height="54"/><rect x="502" y="106" width="2.5" height="54"/><rect x="506" y="106" width="2.5" height="54"/><rect x="510" y="106" width="2.5" height="54"/><rect x="514" y="106" width="2.5" height="54"/><rect x="518" y="106" width="2.5" height="54"/><rect x="522" y="106" width="2.5" height="54"/><rect x="526" y="106" width="2.5" height="54"/>
+            <!-- burst 4: 27 -->
+            <rect x="606" y="90" width="2.5" height="70"/><rect x="610" y="90" width="2.5" height="70"/><rect x="614" y="90" width="2.5" height="70"/><rect x="618" y="90" width="2.5" height="70"/><rect x="622" y="90" width="2.5" height="70"/><rect x="626" y="90" width="2.5" height="70"/><rect x="630" y="90" width="2.5" height="70"/><rect x="634" y="90" width="2.5" height="70"/><rect x="638" y="90" width="2.5" height="70"/><rect x="642" y="90" width="2.5" height="70"/><rect x="646" y="90" width="2.5" height="70"/><rect x="650" y="90" width="2.5" height="70"/><rect x="654" y="90" width="2.5" height="70"/><rect x="658" y="90" width="2.5" height="70"/><rect x="662" y="90" width="2.5" height="70"/><rect x="666" y="90" width="2.5" height="70"/><rect x="670" y="90" width="2.5" height="70"/><rect x="674" y="90" width="2.5" height="70"/><rect x="678" y="90" width="2.5" height="70"/><rect x="682" y="90" width="2.5" height="70"/><rect x="686" y="90" width="2.5" height="70"/><rect x="690" y="90" width="2.5" height="70"/><rect x="694" y="90" width="2.5" height="70"/><rect x="698" y="90" width="2.5" height="70"/><rect x="702" y="90" width="2.5" height="70"/><rect x="706" y="90" width="2.5" height="70"/><rect x="710" y="90" width="2.5" height="70"/>
+          </g>
+          <g font-size="10.5" fill="var(--bad)" text-anchor="middle">
+            <text x="168" y="178">10</text><text x="332" y="178">14</text><text x="492" y="178">18</text><text x="658" y="178">27</text>
+          </g>
+          <g font-size="10" fill="var(--ink-dim)">
+            <text x="8" y="196">0 s</text><text x="820" y="196" text-anchor="end">25 s</text>
+            <text x="418" y="196" text-anchor="middle">each burst grows as Locust ramps concurrency &mdash; the herd gets bigger</text>
+          </g>
+        </g>
+      </svg>
+    </div>
+    <figcaption>Cache stampede, seen directly in <code>redis-cli MONITOR</code>. The tool made an invisible concurrency bug countable.</figcaption>
+  </figure>
+
+  <p>
+    Four industry-standard fixes were weighed: single-flight locking, stale-while-revalidate,
+    probabilistic early expiration, and scheduled background refresh.
+    <strong>Stale-while-revalidate</strong> won because it was philosophically consistent with a
+    decision the project had already made &mdash; bounded <code>spent</code> staleness had already been
+    accepted as &ldquo;budget pacing&rdquo;. Serving a few-seconds-stale candidate list is the same
+    trade. It is also the only option where no request ever waits.
+  </p>
+  <p>
+    Redis TTL alone can say &ldquo;exists / doesn't exist&rdquo; but not &ldquo;how old&rdquo;, so a
+    <code>computed_at</code> stamp went inside the payload, with two thresholds instead of one: fresh
+    under 5 s, usable-but-refresh-in-background to 30 s, genuine miss past that.
+  </p>
+
+  <div class="callout bad">
+    <span class="tag">The gap in the first attempt</span>
+    <p>
+      The lock initially guarded only the background-refresh path. The <em>cold start</em> had no lock
+      at all &mdash; so the opening moment of every load test still stampeded. <code>MONITOR</code>
+      showed it precisely: 13 total <code>SETEX</code>, down from 69, but <strong>10 of those 13
+      clustered in the first second</strong>. Fixing the steady state had hidden, not removed, the
+      identical bug at t=0.
+    </p>
+  </div>
+
+  <h3>Regression 2 &mdash; the GIL, and why throughput refused to move</h3>
+  <p>
+    With the stampede gone, throughput <em>still</em> didn't improve. The clue was arithmetic:
+    <code>1 / 0.18 s &asymp; 5.5 rps</code>, and the measurement was 4.8. The server was achieving
+    essentially <strong>serial</strong> throughput &mdash; getting almost no benefit from concurrency
+    whatsoever.
+  </p>
+  <p>
+    Measured directly, deserialising one cache hit cost <strong>88.5 ms of pure-Python CPU</strong>:
+    <code>json.loads</code> on a 668 KB payload (2.7 ms) plus the construction of <strong>9,344
+    SQLAlchemy ORM objects</strong> (85.8 ms) &mdash; 2,257 campaigns, 2,257 targeting rows, 4,830
+    interests. Each instance pays for SQLAlchemy's instrumentation: change-tracking history,
+    relationship sync, a per-object state container.
+  </p>
+
+  <figure class="reveal">
+    <div class="fig-frame">
+      <svg viewBox="0 0 860 250" role="img" aria-label="Before caching, requests overlap because database waits release Python's global interpreter lock. After caching, each request holds the lock for 88 milliseconds of object construction, so requests serialize and concurrency collapses.">
+        <g font-family="IBM Plex Sans Condensed, sans-serif">
+          <text x="8" y="20" font-size="11.5" font-weight="700" fill="var(--good)">BEFORE CACHE &mdash; DB wait releases the GIL, requests overlap</text>
+          <g>
+            <rect x="8" y="32" width="46" height="17" fill="var(--accent)" opacity="0.85"/>
+            <rect x="54" y="32" width="150" height="17" fill="var(--good-wash)" stroke="var(--good)"/>
+            <rect x="204" y="32" width="26" height="17" fill="var(--accent)" opacity="0.85"/>
+
+            <rect x="60" y="54" width="46" height="17" fill="var(--accent)" opacity="0.85"/>
+            <rect x="106" y="54" width="150" height="17" fill="var(--good-wash)" stroke="var(--good)"/>
+            <rect x="256" y="54" width="26" height="17" fill="var(--accent)" opacity="0.85"/>
+
+            <rect x="112" y="76" width="46" height="17" fill="var(--accent)" opacity="0.85"/>
+            <rect x="158" y="76" width="150" height="17" fill="var(--good-wash)" stroke="var(--good)"/>
+            <rect x="308" y="76" width="26" height="17" fill="var(--accent)" opacity="0.85"/>
+          </g>
+          <text x="348" y="66" font-size="11" fill="var(--good)">three requests finish in the span of roughly one</text>
+
+          <text x="8" y="128" font-size="11.5" font-weight="700" fill="var(--bad)">AFTER CACHE &mdash; 88 ms of GIL-held Python, requests serialize</text>
+          <g>
+            <rect x="8" y="140" width="112" height="17" fill="var(--bad)" opacity="0.8"/>
+            <rect x="120" y="162" width="112" height="17" fill="var(--bad)" opacity="0.8"/>
+            <rect x="232" y="184" width="112" height="17" fill="var(--bad)" opacity="0.8"/>
+            <rect x="344" y="206" width="112" height="17" fill="var(--bad)" opacity="0.8"/>
+          </g>
+          <text x="470" y="196" font-size="11" fill="var(--bad)">each must wait for the one before &mdash; no overlap at all</text>
+
+          <g font-size="10" fill="var(--ink-dim)">
+            <rect x="8" y="232" width="14" height="9" fill="var(--accent)" opacity="0.85"/>
+            <text x="28" y="240">Python (holds GIL)</text>
+            <rect x="152" y="232" width="14" height="9" fill="var(--good-wash)" stroke="var(--good)"/>
+            <text x="172" y="240">DB I/O wait (GIL released)</text>
+            <rect x="330" y="232" width="14" height="9" fill="var(--bad)" opacity="0.8"/>
+            <text x="350" y="240">88 ms deserialization (holds GIL continuously)</text>
+          </g>
+        </g>
+      </svg>
+    </div>
+    <figcaption>The mechanism. Caching removed the database wait &mdash; and that wait was the only thing letting requests run in parallel.</figcaption>
+  </figure>
+
+  <div class="callout">
+    <span class="tag">The actual lesson</span>
+    <p>
+      Python's GIL permits one thread to execute bytecode at a time, but <em>releases during I/O</em>.
+      Before caching, a large part of each request was spent waiting on Postgres with the lock
+      released, so other requests progressed. After caching, that wait was replaced by 88 ms of pure
+      Python that holds the lock continuously and blocks every other in-flight request.
+      <strong>The optimisation traded the one property that made concurrency work for the one that
+      looks better in a single-request benchmark.</strong>
+    </p>
+  </div>
+
+  <h3>The fix, validated before it was built</h3>
+  <p>
+    The lightweight-data-shape option had been considered and rejected earlier, on the grounds that
+    keeping real ORM objects meant no changes to <code>matches_targeting</code>,
+    <code>score_campaign</code>, or the test suite. The evidence reversed that decision.
+  </p>
+  <p>
+    Rather than implement and hope, a microbenchmark built the same 2,257 candidates both ways:
+    real ORM objects versus plain <code>@dataclass(slots=True)</code> equivalents exposing the same
+    attribute names. <strong>80.9 ms &rarr; 10.7 ms, a 7.6&times; speedup</strong>, confirming the cost
+    really was the instrumentation and not something else.
+  </p>
+  <p>
+    The feared test rewrite never materialised. <code>matches_targeting</code> and
+    <code>score_campaign</code> never check the concrete type of what they receive &mdash; they only
+    read attributes. Duck typing meant a test constructing a real <code>AudienceTargeting</code> and
+    production handing over a <code>CandidateTargeting</code> were indistinguishable. All 18 tests
+    passed with zero changes.
+  </p>
+
+  <div class="tbl-scroll">
+    <table>
+      <thead><tr><th>Configuration</th><th class="num">50 users</th><th class="num">100 users</th></tr></thead>
+      <tbody>
+        <tr><td>Original, no cache</td><td class="num">3,100 ms &middot; 7.8 rps</td><td class="num">11,000 ms &middot; 7.2 rps</td></tr>
+        <tr><td>Stampede-fixed, still ORM</td><td class="num loss">7,800 ms &middot; 4.8 rps</td><td class="num loss">15,000 ms &middot; 4.8 rps</td></tr>
+        <tr><td><strong>Lightweight dataclasses</strong></td><td class="num win">94 ms &middot; 22.07 rps</td><td class="num win">390 ms &middot; 39.36 rps</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    Roughly <strong>33&times; faster median and 2.8&times; more throughput</strong> than the original
+    uncached baseline &mdash; not a recovery from a regression, but the win the cache was supposed to
+    deliver from the start, this time evidenced at every step rather than by one misleading
+    measurement.
+  </p>
+</section>
+
+<!-- ================= ACT IV ================= -->
+<section id="ceiling" class="wrap act reveal">
+  <div class="act-head">
+    <span class="act-num">ACT IV</span>
+    <h2>Finding the real ceiling</h2>
+  </div>
+  <p class="lede">Before chasing the next bottleneck: the benchmark itself was wrong, and had been for two sections.</p>
+
+  <div class="tools">
+    <span class="tool">py-spy</span>
+    <span class="tool">locustfile_fast</span>
+    <span class="tool">pg_stat_activity</span>
+    <span class="tool">per-core CPU sampling</span>
+  </div>
+
+  <h3>Correction: the load generator was the ceiling, not the server</h3>
+  <p>
+    Locust's default <code>wait_time = between(1, 3)</code> inserts about 2 s of think time between a
+    simulated user's requests. That caps how much load a given user count can ever offer, regardless of
+    how fast the server is: <code>max offered rps &asymp; users / (think_time + response_time)</code>.
+    At 50 users that ceiling is about 25 rps &mdash; and the celebrated 22.07 rps from the previous
+    section sits almost exactly on it.
+  </p>
+  <p>
+    <strong>The server had never been saturated at all.</strong> The test rig was the limit. Re-measured
+    with think time removed:
+  </p>
+
+  <div class="tbl-scroll">
+    <table>
+      <thead><tr><th>Configuration</th><th class="num">RPS</th><th class="num">p50</th><th class="num">p95</th><th class="num">p99</th></tr></thead>
+      <tbody>
+        <tr><td>50 users, default think time</td><td class="num">22.07 <span style="color:var(--ink-dim)">&asymp; rig ceiling</span></td><td class="num">94 ms</td><td class="num">&mdash;</td><td class="num">&mdash;</td></tr>
+        <tr><td>50 users, no think time</td><td class="num">38.76</td><td class="num">1,300 ms</td><td class="num">1,700 ms</td><td class="num">1,900 ms</td></tr>
+        <tr><td>150 users, no think time</td><td class="num">35.93</td><td class="num">3,700 ms</td><td class="num">6,100 ms</td><td class="num">9,200 ms</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    RPS falling from 50 to 150 users while latency climbs linearly is the real saturation signature.
+    True single-process capacity was ~36&ndash;39 rps, not 22. The previous conclusion stood; the
+    <em>headroom estimate</em> built on it did not.
+  </p>
+
+  <h3>py-spy, and a red herring worth keeping</h3>
+  <p>
+    Sampling the live server under real load showed <code>_deserialize_candidates</code> consuming
+    <strong>51.1%</strong> of CPU samples &mdash; every request was still rebuilding ~9,300 objects that
+    were identical for every request served in the same cache window. Memoising the deserialised list
+    per process, keyed by a freshness stamp, dropped that share to <strong>0.4%</strong>.
+  </p>
+
+  <div class="verdict">
+    <div class="vbox before"><span class="vk">150 users, before memo</span><span class="vv">3,700 ms p50<br>35.93 rps</span></div>
+    <div class="varrow">&rarr;</div>
+    <div class="vbox after"><span class="vk">150 users, after memo</span><span class="vv">800 ms p50<br>175.88 rps</span></div>
+  </div>
+
+  <p>
+    The same investigation surfaced a 43 ms stall inside <code>record_win</code> that looked like a
+    major find. It was chased, isolated, and then <strong>disproved</strong>: running the identical
+    probe inside a Linux container on the same Docker network gave 1.93 ms against 43.96 ms on the
+    Windows host. It was Docker Desktop's port-forwarder, an artifact of the development machine that
+    does not exist in production. The correct action was to change nothing and write it down.
+  </p>
+
+  <h3>Eight workers, and why 4.4&times; is the right answer</h3>
+  <p>
+    Python's GIL is per process, so the way to use the other cores is more processes. The hazard was
+    worked out on paper first: each worker builds its own engine, so connection pool settings
+    <em>multiply</em>. 50 connections per worker &times; 8 workers = 400 against a Postgres
+    <code>max_connections</code> of 100. The pool was resized to 10 per worker before anything was
+    launched, and the rejection was reproduced deliberately to confirm the math.
+  </p>
+
+  <div class="tbl-scroll">
+    <table>
+      <thead><tr><th>150 users, no think time</th><th class="num">1 worker</th><th class="num">8 workers</th></tr></thead>
+      <tbody>
+        <tr><td>RPS</td><td class="num">175.88</td><td class="num win">~770</td></tr>
+        <tr><td>p50</td><td class="num">800 ms</td><td class="num win">170 ms</td></tr>
+        <tr><td>p95</td><td class="num">1,100 ms</td><td class="num win">300 ms</td></tr>
+        <tr><td>p99</td><td class="num">1,300 ms</td><td class="num win">440 ms</td></tr>
+        <tr><td>Failures</td><td class="num">0 / 6,173</td><td class="num win">0 / 23,326</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    Sub-linear scaling is the expected result, not a shortfall. The machine has <strong>8 physical
+    cores and 16 logical</strong>; eight CPU-bound workers map onto the eight physical cores, and
+    hyperthreaded siblings share execution units rather than granting a true second core. The load
+    generator also ran on the same laptop, consuming 63&ndash;82% of a core it was taking away from the
+    server.
+  </p>
+
+  <h3>Then it broke at 2,400 users &mdash; and there were two bugs, not one</h3>
+  <p>
+    Bisecting for the exact failure threshold was considered and explicitly rejected: it answers
+    <em>where</em>, not <em>why</em>, and a specific mechanism was already suspected. A controlled
+    comparison at fixed load was the more informative move. That judgment held &mdash; neither bug
+    would have been found by bisection.
+  </p>
+
+  <h4>Bug one: a thread limiter nobody configured</h4>
+  <p>
+    Rather than trusting memory, the limit was confirmed from the installed source:
+  </p>
+<pre><code><span class="cm">$ grep -n "CapacityLimiter(40)" .venv/.../anyio/_backends/_asyncio.py</span>
+3162:            limiter = <span class="hl">CapacityLimiter(40)</span></code></pre>
+  <p>
+    <code>anyio</code>'s default thread limiter is hard-coded to 40 &mdash; not derived from CPU count,
+    not exposed by any setting this project touched. FastAPI runs every sync path function through it.
+    So up to 40 requests per worker could be mid-flight, each holding a real OS thread and competing
+    for the GIL, queued behind a pool that could serve only 10. The fix aligned the two numbers exactly.
+  </p>
+
+  <h4>Bug two: found while verifying the first fix</h4>
+  <p>
+    At 600 users the server didn't merely degrade &mdash; it stalled completely. Zero requests completed
+    in 48 seconds. Postgres sat pinned at exactly <strong>80.0 of 80</strong> connections
+    idle-in-transaction, static, not fluctuating. Worker CPU was 3.4%.
+  </p>
+  <p>
+    The answer came from the server's own log rather than more theorising: a real
+    <code>sqlalchemy.exc.TimeoutError: QueuePool limit of size 6 overflow 4 reached</code>. The
+    background cache-refresh thread ran on a raw <code>threading.Thread</code>, never through anyio
+    &mdash; so it was <em>invisible</em> to the limiter that had just been sized to match the pool
+    exactly. It quietly consumed connections the limiter believed were reserved.
+  </p>
+  <p>
+    Fixed by giving the background refresh its own isolated single-connection pool, and shortening
+    <code>pool_timeout</code> from 30 s to 3 s so genuine overload fails fast and self-recovers instead
+    of hanging. Result at the same 600 users: <strong>4,776 requests in 40 s</strong>, 30.49% failures
+    &mdash; but all failing quickly, with the server recovering in 5&ndash;10 s rather than requiring a
+    restart.
+  </p>
+
+  <h3>The capacity cliff, measured</h3>
+  <p>
+    With both bugs fixed, bisection finally <em>was</em> the right tool &mdash; no unknown mechanism
+    left, just a number worth having.
+  </p>
+
+  <figure class="reveal">
+    <div class="fig-frame">
+      <svg viewBox="0 0 860 300" role="img" aria-label="Throughput and failure rate against concurrent users. Throughput holds near 600 requests per second up to 280 users, then collapses to under 200 between 285 and 300 users while failures climb to nearly 12 percent, then plateaus.">
+        <g font-family="IBM Plex Sans Condensed, sans-serif">
+          <!-- axes -->
+          <line x1="56" y1="20" x2="56" y2="212" stroke="var(--line)"/>
+          <line x1="56" y1="212" x2="830" y2="212" stroke="var(--line)"/>
+          <g stroke="var(--grid)">
+            <line x1="56" y1="20" x2="830" y2="20"/>
+            <line x1="56" y1="68" x2="830" y2="68"/>
+            <line x1="56" y1="116" x2="830" y2="116"/>
+            <line x1="56" y1="164" x2="830" y2="164"/>
+          </g>
+          <g fill="var(--ink-dim)" font-family="IBM Plex Mono, monospace" font-size="10" text-anchor="end">
+            <text x="48" y="24">800</text><text x="48" y="72">600</text><text x="48" y="120">400</text><text x="48" y="168">200</text><text x="48" y="216">0</text>
+          </g>
+          <text x="20" y="118" font-size="10.5" fill="var(--accent)" transform="rotate(-90 20 118)" text-anchor="middle">requests / sec</text>
+
+          <!-- rps line: 100:743, 200:612, 220:530, 240:589, 260:603, 280:591, 285:442, 290:393, 295:356, 300:194, 400:196, 500:254, 600:202, 800:202 -->
+          <polyline points="96,34 190,65 208,85 226,71 244,68 262,70 267,106 272,118 277,127 282,166 348,165 414,151 480,164 612,164"
+                    fill="none" stroke="var(--accent)" stroke-width="2.5"/>
+          <g fill="var(--accent)">
+            <circle cx="96" cy="34" r="3.4"/><circle cx="190" cy="65" r="3.4"/><circle cx="226" cy="71" r="3.4"/>
+            <circle cx="262" cy="70" r="3.4"/><circle cx="282" cy="166" r="3.4"/><circle cx="348" cy="165" r="3.4"/>
+            <circle cx="414" cy="151" r="3.4"/><circle cx="480" cy="164" r="3.4"/><circle cx="612" cy="164" r="3.4"/>
+          </g>
+
+          <!-- failure bars along bottom -->
+          <g fill="var(--bad)" opacity="0.9">
+            <rect x="279" y="240" width="7" height="24"/>
+            <rect x="345" y="238" width="7" height="26"/>
+            <rect x="411" y="252" width="7" height="12"/>
+            <rect x="477" y="244" width="7" height="20"/>
+            <rect x="609" y="246" width="7" height="18"/>
+          </g>
+          <line x1="56" y1="264" x2="830" y2="264" stroke="var(--line)"/>
+          <text x="20" y="252" font-size="10.5" fill="var(--bad)" transform="rotate(-90 20 252)" text-anchor="middle">fail %</text>
+
+          <!-- cliff marker -->
+          <rect x="262" y="20" width="22" height="192" fill="var(--bad-wash)"/>
+          <line x1="262" y1="20" x2="262" y2="212" stroke="var(--bad)" stroke-width="1" stroke-dasharray="3 3"/>
+          <text x="330" y="96" font-size="11.5" font-weight="700" fill="var(--bad)">the cliff: 280 &rarr; 300 users</text>
+          <text x="330" y="112" font-size="10.5" fill="var(--ink-2)">591 rps / 0.18% fails</text>
+          <text x="330" y="127" font-size="10.5" fill="var(--ink-2)">&rarr; 194 rps / 11.92% fails</text>
+
+          <g font-size="10" fill="var(--ink-dim)" text-anchor="middle">
+            <text x="96" y="282">100</text><text x="190" y="282">200</text><text x="272" y="282">280</text>
+            <text x="348" y="282">400</text><text x="480" y="282">600</text><text x="612" y="282">800</text>
+            <text x="443" y="296">concurrent users</text>
+          </g>
+          <text x="660" y="130" font-size="10.5" fill="var(--ink-2)">past the cliff it does not keep collapsing &mdash;</text>
+          <text x="660" y="145" font-size="10.5" fill="var(--ink-2)">it holds a bounded, self-recovering plateau</text>
+        </g>
+      </svg>
+    </div>
+    <figcaption>The measured tipping point: clean through ~280 users, an accelerating slide from 285&ndash;295, degraded steady state at 300. The plateau past the cliff is the fail-fast design working as intended.</figcaption>
+  </figure>
+</section>
+
+<!-- ================= ACT V ================= -->
+<section id="write" class="wrap act reveal">
+  <div class="act-head">
+    <span class="act-num">ACT V</span>
+    <h2>The write path, audited before adding Kafka</h2>
+  </div>
+  <p class="lede">The plan was to move writes off the request path. Profiling first found a revenue bug instead.</p>
+
+  <p>
+    Kafka was next on the roadmap, justified by &ldquo;the write is slow&rdquo;. Before building
+    infrastructure on that premise, the premise got measured. Decomposing one auction request into
+    phases:
+  </p>
+
+  <figure class="reveal">
+    <div class="fig-frame">
+      <svg viewBox="0 0 860 190" role="img" aria-label="Phase breakdown of one auction request. Record win dominates at 50.37 of 54.77 milliseconds, but 44 of those milliseconds are a Windows Docker measurement artifact.">
+        <g font-family="IBM Plex Sans Condensed, sans-serif">
+          <text x="8" y="20" font-size="11.5" font-weight="700" fill="var(--ink-dim)">ONE REQUEST, 54.77 ms TOTAL</text>
+          <!-- scale: 1ms = 14px, total 54.77 -> 766px -->
+          <rect x="8" y="32" width="15" height="30" fill="var(--accent)" opacity="0.5"/>
+          <rect x="23" y="32" width="45" height="30" fill="var(--accent)" opacity="0.7"/>
+          <rect x="68" y="32" width="2" height="30" fill="var(--accent)"/>
+          <rect x="70" y="32" width="705" height="30" fill="var(--bad)" opacity="0.85"/>
+
+          <g font-size="10.5">
+            <text x="200" y="78" fill="var(--bad)">record_win &mdash; 50.37 ms, 92% of the request</text>
+            <rect x="8" y="70" width="10" height="9" fill="var(--accent)" opacity="0.5"/>
+            <text x="23" y="78" fill="var(--ink-dim)">get_user 1.04</text>
+            <rect x="106" y="70" width="10" height="9" fill="var(--accent)" opacity="0.7"/>
+            <text x="121" y="78" fill="var(--ink-dim)">filter 3.23</text>
+          </g>
+
+          <!-- decomposition of record_win -->
+          <text x="8" y="120" font-size="11.5" font-weight="700" fill="var(--ink-dim)">INSIDE record_win</text>
+          <rect x="8" y="132" width="11" height="26" fill="var(--accent)" opacity="0.6"/>
+          <rect x="19" y="132" width="31" height="26" fill="var(--accent)" opacity="0.6"/>
+          <rect x="50" y="132" width="592" height="26" fill="var(--bad)" opacity="0.6"/>
+          <rect x="642" y="132" width="30" height="26" fill="var(--accent)" opacity="0.6"/>
+          <rect x="672" y="132" width="18" height="26" fill="var(--accent)" opacity="0.6"/>
+
+          <g font-size="10" fill="var(--ink-dim)">
+            <text x="8" y="174">re-fetch 0.73</text>
+            <text x="120" y="174" fill="var(--bad)">one INSERT of 2&ndash;3 rows &mdash; 41.76 ms</text>
+            <text x="600" y="174">commit 2.15</text>
+            <text x="700" y="174">refresh 1.26</text>
+          </g>
+        </g>
+      </svg>
+    </div>
+    <figcaption>The 41.76 ms insert was the whole story &mdash; and it turned out not to be a story at all. Run in psql directly it took 1.1 ms; the cost was entirely client-side, and entirely a Windows artifact.</figcaption>
+  </figure>
+
+  <div class="callout bad">
+    <span class="tag">Correction &mdash; a finding the project already had</span>
+    <p>
+      The 44 ms stall was initially re-diagnosed as TCP Nagle / delayed-ACK. The project's own
+      performance playbook had already tested and <em>rejected</em> that exact hypothesis in an earlier
+      session, and correctly attributed it to Docker Desktop's Windows port-forwarder. Re-confirmed:
+      <strong>43 ms on the host, 1.93 ms inside a Linux container.</strong> Not fixed, deliberately
+      &mdash; it does not exist in production, and rewriting code to dodge a laptop artifact would have
+      been adding permanent complexity to work around a local environment.
+    </p>
+  </div>
+
+  <h3>The bug that was real: 90% of charges silently disappearing</h3>
+  <p>
+    <code>campaign.spent += COST_PER_WIN</code> reads the value into Python, adds, and writes it back.
+    Three operations, and another worker can land between them. Two workers winning the same campaign
+    concurrently both read the same starting value, both write the same result, and one charge vanishes.
+    Under <code>READ COMMITTED</code>, Postgres will not stop this.
+  </p>
+  <p>
+    Passing tests do not prove a race is fixed, so it was proven with a forced collision: 10 threads
+    &times; 5 wins on one shared campaign, synchronised on a barrier so they all start together.
+  </p>
+
+  <div class="tbl-scroll">
+    <table>
+      <thead><tr><th>Implementation</th><th class="num">Impressions</th><th class="num">Charged</th><th class="num">Owed</th><th class="num">Lost</th></tr></thead>
+      <tbody>
+        <tr><td><code>spent += ...</code> in Python</td><td class="num">50</td><td class="num loss">$2.50</td><td class="num">$25.00</td><td class="num loss">45 of 50 &mdash; 90%</td></tr>
+        <tr><td><code>SET spent = spent + ...</code></td><td class="num">50</td><td class="num win">$25.00</td><td class="num">$25.00</td><td class="num win">0</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    Under forced collision the old code served 50 impressions and billed for five. This is not a
+    theoretical edge case &mdash; it is the dominant outcome once several concurrent requests win the
+    same popular campaign, which is exactly the traffic pattern the project's own load tests generate.
+  </p>
+
+<pre><code><span class="rm">- campaign.spent += COST_PER_WIN            # read, add, write — three steps</span>
+<span class="ad">+ db.execute(</span>
+<span class="ad">+     update(Campaign)</span>
+<span class="ad">+     .where(Campaign.id == campaign.id)</span>
+<span class="ad">+     .values(spent=Campaign.spent + COST_PER_WIN)   # one atomic, row-locked statement</span>
+<span class="ad">+ )</span></code></pre>
+
+  <p>
+    The same audit removed three redundant queries: <code>record_win</code> was scoring a re-fetched
+    ORM object, triggering two lazy loads for data the caller already held in memory, then refreshing a
+    row it had just written. <strong>Seven SQL statements per win became three.</strong>
+  </p>
+
+  <div class="callout good">
+    <span class="tag">What this did to the Kafka plan</span>
+    <p>
+      Re-running the capacity sweep after these fixes: at 300 users, where the system previously
+      collapsed to 194 rps with 11.92% failures, it now ran at <strong>1,084 rps with zero
+      failures</strong> &mdash; and the failure cliff did not reappear anywhere through 1,600 users.
+    </p>
+    <p>
+      The honest reading, recorded at the time: <em>two variables changed</em> &mdash; the code and the
+      measurement environment. The clean single-variable proof is the race test above, not this sweep.
+      And the original justification for Kafka was now gone. It was built anyway, deliberately, for
+      decoupling and durability &mdash; never again described as a throughput fix.
+    </p>
+  </div>
+</section>
+
+<!-- ================= ACT VI ================= -->
+<section id="events" class="wrap act reveal">
+  <div class="act-head">
+    <span class="act-num">ACT VI</span>
+    <h2>Events, and a system that learns</h2>
+  </div>
+  <p class="lede">Clicks stop writing to Postgres. A separate process writes them. Then the clicks start changing what gets shown.</p>
+
+  <h3>Why the partition key is the click's own id</h3>
+  <p>
+    Kafka guarantees ordering only <em>within</em> a partition, and messages sharing a key always land
+    on the same partition. That is the only lever available for controlling order. A click event and
+    any conversion referencing it are both keyed on <strong>the click's id</strong> &mdash; which
+    guarantees a consumer always sees the click before the conversion that depends on it.
+  </p>
+
+  <figure class="reveal">
+    <div class="fig-frame">
+      <svg viewBox="0 0 860 230" role="img" aria-label="Click and conversion events sharing a key land on the same Kafka partition in produce order, so the consumer always processes the click before the conversion that references it.">
+        <g font-family="IBM Plex Sans Condensed, sans-serif">
+          <defs>
+            <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--ink-dim)"/>
+            </marker>
+          </defs>
+
+          <rect x="8" y="30" width="150" height="38" fill="var(--surface-2)" stroke="var(--line)"/>
+          <text x="83" y="47" font-size="11.5" fill="var(--ink)" text-anchor="middle">POST /clicks</text>
+          <text x="83" y="61" font-size="10" fill="var(--accent)" text-anchor="middle" font-family="IBM Plex Mono, monospace">key = click_id</text>
+
+          <rect x="8" y="92" width="150" height="38" fill="var(--surface-2)" stroke="var(--line)"/>
+          <text x="83" y="109" font-size="11.5" fill="var(--ink)" text-anchor="middle">POST /conversions</text>
+          <text x="83" y="123" font-size="10" fill="var(--accent)" text-anchor="middle" font-family="IBM Plex Mono, monospace">key = click_id</text>
+
+          <line x1="160" y1="49" x2="228" y2="66" stroke="var(--ink-dim)" stroke-width="1.5" marker-end="url(#a3)"/>
+          <line x1="160" y1="111" x2="228" y2="88" stroke="var(--ink-dim)" stroke-width="1.5" marker-end="url(#a3)"/>
+          <text x="194" y="52" font-size="9.5" fill="var(--ink-dim)">hash(key)</text>
+
+          <!-- partitions -->
+          <text x="240" y="24" font-size="11" font-weight="700" fill="var(--ink-dim)">TOPIC adserve.events &mdash; 3 partitions</text>
+          <rect x="240" y="30" width="330" height="30" fill="var(--surface)" stroke="var(--line)"/>
+          <text x="252" y="50" font-size="10" fill="var(--ink-dim)" font-family="IBM Plex Mono, monospace">partition 0</text>
+
+          <rect x="240" y="64" width="330" height="30" fill="var(--accent-wash)" stroke="var(--accent)" stroke-width="1.5"/>
+          <text x="252" y="84" font-size="10" fill="var(--ink-dim)" font-family="IBM Plex Mono, monospace">partition 1</text>
+          <rect x="350" y="70" width="80" height="18" fill="var(--accent)" opacity="0.85"/>
+          <text x="390" y="83" font-size="10" fill="#111" text-anchor="middle" font-weight="600">click</text>
+          <rect x="438" y="70" width="110" height="18" fill="var(--accent)" opacity="0.55"/>
+          <text x="493" y="83" font-size="10" fill="var(--ink)" text-anchor="middle" font-weight="600">conversion</text>
+
+          <rect x="240" y="98" width="330" height="30" fill="var(--surface)" stroke="var(--line)"/>
+          <text x="252" y="118" font-size="10" fill="var(--ink-dim)" font-family="IBM Plex Mono, monospace">partition 2</text>
+
+          <text x="405" y="146" font-size="10" fill="var(--ink-dim)" text-anchor="middle">same key &rarr; same partition &rarr; produce order preserved</text>
+
+          <line x1="572" y1="79" x2="618" y2="79" stroke="var(--ink-dim)" stroke-width="1.5" marker-end="url(#a3)"/>
+
+          <rect x="620" y="52" width="230" height="54" fill="var(--surface)" stroke="var(--good)" stroke-width="1.5"/>
+          <text x="735" y="72" font-size="11.5" fill="var(--ink)" text-anchor="middle" font-weight="600">consume_events.py</text>
+          <text x="735" y="88" font-size="10" fill="var(--ink-dim)" text-anchor="middle">separate process, own lifecycle</text>
+          <text x="735" y="100" font-size="10" fill="var(--good)" text-anchor="middle">click always arrives first</text>
+
+          <line x1="8" y1="172" x2="850" y2="172" stroke="var(--grid)"/>
+          <text x="8" y="192" font-size="11" fill="var(--ink-2)">The consumer's foreign key from conversions to clicks would fail if this ordering broke.</text>
+          <text x="8" y="208" font-size="11" fill="var(--ink-2)">Keying both on the same value makes that failure <tspan font-weight="700" fill="var(--ink)">impossible by construction</tspan> rather than something to detect and retry.</text>
+        </g>
+      </svg>
+    </div>
+    <figcaption>Partitioning as a correctness tool, not a throughput tool.</figcaption>
+  </figure>
+
+  <h3>At-least-once, and what makes it safe</h3>
+  <p>
+    Offsets are committed manually, only after a message is actually written to Postgres. The default
+    &mdash; commit as soon as <code>poll()</code> returns &mdash; would advance the offset <em>before</em>
+    the write, so a crash in between loses the event permanently. Committing afterwards means a crash
+    causes redelivery instead of loss.
+  </p>
+  <p>
+    That is only safe because redelivery is harmless: each row's primary key is the event's own
+    client-generated id, so a replay hits a duplicate-key <code>IntegrityError</code> &mdash; a
+    reliable &ldquo;already handled&rdquo; signal rather than a reason to write twice. Proven by
+    republishing an identical event and confirming the row count stayed at exactly one.
+  </p>
+
+  <div class="callout bad">
+    <span class="tag">The bug that hung everything</span>
+    <p>
+      The first end-to-end run produced no consumer output at all, with the container reporting healthy.
+      Producing worked; every consumer-group operation hung, including the command-line tools. The
+      answer was in <code>docker logs</code>, repeating every 250 ms forever:
+      <code>Sent auto-creation request for Set(__consumer_offsets)</code>.
+    </p>
+    <p>
+      Kafka's internal offsets topic defaults to a <strong>replication factor of 3</strong>. With one
+      broker that can never be satisfied, so the topic silently never gets created &mdash; and every
+      operation depending on a consumer group's coordinator waits forever on it. Three
+      <code>*_REPLICATION_FACTOR: 1</code> overrides fixed it. Nothing in the symptom pointed at the
+      cause; only the broker's own log did.
+    </p>
+  </div>
+
+  <h3>The eventual-consistency window, observed rather than asserted</h3>
+  <p>
+    The click endpoint now returns <code>201</code> with a usable id before the row exists anywhere in
+    Postgres. Querying immediately after the response returned <strong>zero rows</strong>, every time,
+    until the consumer caught up moments later. That gap is the entire trade the design makes, and it
+    was verified directly rather than described.
+  </p>
+
+  <h3>Then the clicks start changing the auction</h3>
+  <p>
+    Every interest starts at a flat weight of <code>1.0</code> for every user. On a click, the consumer
+    credits the clicked campaign's <em>full targeted interest set</em> (<code>+1.0</code>) and decays
+    every other interest that user holds (<code>&times;0.95</code>). Crediting the whole set, rather
+    than only the overlap that made the campaign eligible, is what lets a click reveal a
+    <strong>genuinely new</strong> interest instead of only reinforcing known ones &mdash; the
+    difference between preference <em>learning</em> and preference <em>confirmation</em>.
+  </p>
+
+  <div class="tbl-scroll">
+    <table>
+      <thead><tr><th>Interest</th><th class="num">Before</th><th class="num">After one click</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>photography</td><td class="num">1.0</td><td class="num win">2.0</td><td>targeted by the clicked campaign</td></tr>
+        <tr><td>finance</td><td class="num" style="color:var(--ink-dim)">no row</td><td class="num win">1.0</td><td>newly discovered &mdash; user never had it</td></tr>
+        <tr><td>food_drink</td><td class="num" style="color:var(--ink-dim)">no row</td><td class="num win">1.0</td><td>newly discovered</td></tr>
+        <tr><td>education</td><td class="num">1.0</td><td class="num">0.95</td><td>not targeted &mdash; decayed</td></tr>
+        <tr><td>hiking</td><td class="num">1.0</td><td class="num">0.95</td><td>not targeted &mdash; decayed</td></tr>
+        <tr><td>movies_tv</td><td class="num">1.0</td><td class="num">0.95</td><td>not targeted &mdash; decayed</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    Both writes are atomic database-side statements &mdash; an <code>INSERT ... ON CONFLICT DO
+    UPDATE</code> upsert and a single <code>UPDATE</code> &mdash; deliberately avoiding the exact
+    read-modify-write race that had just been fixed in the auction path. The same lesson, applied
+    before the bug could happen rather than after.
+  </p>
+
+  <h3>Closing the loop</h3>
+  <p>
+    Writing weights changes nothing on its own. <code>score_campaign</code> had to read them &mdash;
+    summing a user's real per-interest weights instead of counting matched interests. Eligibility was
+    deliberately left alone: weight shifts the <em>odds</em> among already-eligible campaigns, it never
+    decides whether a campaign is eligible at all.
+  </p>
+
+  <figure class="reveal">
+    <div class="fig-frame">
+      <svg viewBox="0 0 860 260" role="img" aria-label="The preference learning feedback loop: an auction scores campaigns using learned weights, shows an ad, the user clicks, a Kafka consumer nudges the weights, and the next auction for that user reads the updated weights.">
+        <g font-family="IBM Plex Sans Condensed, sans-serif">
+          <defs>
+            <marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"/>
+            </marker>
+          </defs>
+
+          <rect x="30" y="34" width="160" height="56" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5"/>
+          <text x="110" y="56" font-size="12" fill="var(--ink)" text-anchor="middle" font-weight="600">read weights</text>
+          <text x="110" y="72" font-size="10" fill="var(--ink-dim)" text-anchor="middle">one query per request</text>
+
+          <line x1="192" y1="62" x2="240" y2="62" stroke="var(--accent)" stroke-width="2" marker-end="url(#a4)"/>
+
+          <rect x="242" y="34" width="160" height="56" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.5"/>
+          <text x="322" y="56" font-size="12" fill="var(--ink)" text-anchor="middle" font-weight="600">score &amp; pick</text>
+          <text x="322" y="72" font-size="10" fill="var(--ink-dim)" text-anchor="middle">1.0 + &Sigma; weights</text>
+
+          <line x1="404" y1="62" x2="452" y2="62" stroke="var(--accent)" stroke-width="2" marker-end="url(#a4)"/>
+
+          <rect x="454" y="34" width="160" height="56" fill="var(--surface)" stroke="var(--line)"/>
+          <text x="534" y="56" font-size="12" fill="var(--ink)" text-anchor="middle" font-weight="600">ad shown</text>
+          <text x="534" y="72" font-size="10" fill="var(--ink-dim)" text-anchor="middle">impression logged</text>
+
+          <line x1="616" y1="62" x2="664" y2="62" stroke="var(--accent)" stroke-width="2" marker-end="url(#a4)"/>
+
+          <rect x="666" y="34" width="160" height="56" fill="var(--surface)" stroke="var(--line)"/>
+          <text x="746" y="56" font-size="12" fill="var(--ink)" text-anchor="middle" font-weight="600">user clicks</text>
+          <text x="746" y="72" font-size="10" fill="var(--ink-dim)" text-anchor="middle">event to Kafka</text>
+
+          <!-- down and back -->
+          <line x1="746" y1="92" x2="746" y2="128" stroke="var(--accent)" stroke-width="2" marker-end="url(#a4)"/>
+          <rect x="560" y="130" width="372" height="0" fill="none"/>
+          <rect x="586" y="130" width="320" height="52" fill="var(--surface)" stroke="var(--good)" stroke-width="1.5" transform="translate(-260,0)"/>
+          <text x="486" y="152" font-size="12" fill="var(--ink)" text-anchor="middle" font-weight="600">consumer nudges weights</text>
+          <text x="486" y="168" font-size="10" fill="var(--ink-dim)" text-anchor="middle">+1.0 targeted &nbsp;&middot;&nbsp; &times;0.95 everything else</text>
+
+          <path d="M 326 156 L 110 156 L 110 98" fill="none" stroke="var(--accent)" stroke-width="2" marker-end="url(#a4)"/>
+          <text x="196" y="150" font-size="10" fill="var(--accent)" text-anchor="middle">feeds the NEXT auction</text>
+
+          <line x1="30" y1="206" x2="830" y2="206" stroke="var(--grid)"/>
+          <text x="30" y="226" font-size="11" fill="var(--ink-2)">The loop does not close within one request. It closes on whichever auction for that user happens next &mdash;</text>
+          <text x="30" y="242" font-size="11" fill="var(--ink-2)">seconds or days later.</text>
+        </g>
+      </svg>
+    </div>
+    <figcaption>The full feedback loop. Read the arrow from the consumer back to &ldquo;read weights&rdquo; as the point of the entire two-part step.</figcaption>
+  </figure>
+
+  <p>
+    Verified as an outcome shift rather than a code change. Against the same 192 eligible campaigns for
+    the same real user, 3,000 trials each:
+  </p>
+
+  <div class="verdict">
+    <div class="vbox before"><span class="vk">Flat overlap counting</span><span class="vv">650 / 3,000<br>21.7%</span></div>
+    <div class="varrow">&rarr;</div>
+    <div class="vbox after"><span class="vk">Learned weights</span><span class="vv">821 / 3,000<br>27.4%</span></div>
+  </div>
+
+  <p>
+    A <strong>~26% relative increase</strong> in how often a user is shown ads touching an interest
+    they have actually clicked on. Of 158 targeted eligible campaigns, 112 scored differently &mdash;
+    this is not an edge case visible only in a crafted example. The work also surfaced a real bug:
+    <code>Impression.score</code> was an <code>Integer</code> column, too narrow for weighted sums that
+    are no longer whole numbers.
+  </p>
+</section>
+
+<!-- ================= ACT VII ================= -->
+<section id="observe" class="wrap act reveal">
+  <div class="act-head">
+    <span class="act-num">ACT VII</span>
+    <h2>Instrumentation, and a metric that lied</h2>
+  </div>
+  <p class="lede">The library's own documented one-liner produced plausible, real-looking numbers that were wrong on every scrape.</p>
+
+  <p>
+    Prometheus scrapes; the app never pushes. Adding
+    <code>prometheus-fastapi-instrumentator</code> gave automatic request counts, latency histograms and
+    status codes, plus custom counters for auction wins, no-fills, suspicious clicks and idempotent
+    replays.
+  </p>
+  <p>
+    The exposition looked fine. It was checked anyway, because this app runs
+    <code>uvicorn --workers 4</code> and every metric object lives in whichever process created it.
+    Scraping the same counter six times in a row:
+  </p>
+
+  <figure class="reveal">
+    <div class="fig-frame">
+      <svg viewBox="0 0 860 240" role="img" aria-label="With four worker processes each holding separate in-memory counters, six consecutive scrapes of the same metric returned three different values cycling between 5, 6 and 33.">
+        <g font-family="IBM Plex Sans Condensed, sans-serif">
+          <text x="8" y="20" font-size="11.5" font-weight="700" fill="var(--bad)">EACH WORKER COUNTS ONLY ITS OWN REQUESTS</text>
+
+          <g>
+            <rect x="8" y="32" width="120" height="44" fill="var(--surface)" stroke="var(--line)"/>
+            <text x="68" y="50" font-size="10.5" fill="var(--ink-dim)" text-anchor="middle">worker 1</text>
+            <text x="68" y="68" font-size="15" fill="var(--ink)" text-anchor="middle" font-family="IBM Plex Mono, monospace">5</text>
+
+            <rect x="136" y="32" width="120" height="44" fill="var(--surface)" stroke="var(--line)"/>
+            <text x="196" y="50" font-size="10.5" fill="var(--ink-dim)" text-anchor="middle">worker 2</text>
+            <text x="196" y="68" font-size="15" fill="var(--ink)" text-anchor="middle" font-family="IBM Plex Mono, monospace">6</text>
+
+            <rect x="264" y="32" width="120" height="44" fill="var(--surface)" stroke="var(--line)"/>
+            <text x="324" y="50" font-size="10.5" fill="var(--ink-dim)" text-anchor="middle">worker 3</text>
+            <text x="324" y="68" font-size="15" fill="var(--ink)" text-anchor="middle" font-family="IBM Plex Mono, monospace">33</text>
+
+            <rect x="392" y="32" width="120" height="44" fill="var(--surface)" stroke="var(--line)"/>
+            <text x="452" y="50" font-size="10.5" fill="var(--ink-dim)" text-anchor="middle">worker 4</text>
+            <text x="452" y="68" font-size="15" fill="var(--ink)" text-anchor="middle" font-family="IBM Plex Mono, monospace">&hellip;</text>
+          </g>
+
+          <text x="560" y="58" font-size="11" fill="var(--ink-2)">one shared port &mdash; the OS picks</text>
+          <text x="560" y="73" font-size="11" fill="var(--ink-2)">whichever worker answers /metrics</text>
+
+          <text x="8" y="112" font-size="11.5" font-weight="700" fill="var(--bad)">SIX CONSECUTIVE SCRAPES OF THE SAME COUNTER</text>
+          <g font-family="IBM Plex Mono, monospace" font-size="13" fill="var(--bad)">
+            <text x="8" y="136">adserve_auction_wins_total  5.0</text>
+            <text x="8" y="154">adserve_auction_wins_total  6.0</text>
+            <text x="8" y="172">adserve_auction_wins_total  33.0</text>
+            <text x="8" y="190">adserve_auction_wins_total  5.0</text>
+            <text x="8" y="208">adserve_auction_wins_total  6.0</text>
+            <text x="8" y="226">adserve_auction_wins_total  33.0</text>
+          </g>
+          <text x="330" y="160" font-size="11.5" fill="var(--ink)" font-weight="700">33 &rarr; 5 is a counter going DOWN.</text>
+          <text x="330" y="178" font-size="11" fill="var(--ink-2)">Every rate() and increase() query in</text>
+          <text x="330" y="194" font-size="11" fill="var(--ink-2)">Prometheus assumes that cannot happen.</text>
+        </g>
+      </svg>
+    </div>
+    <figcaption>The dangerous class of bug: every individual reading looks like real data. Only asking the same question twice reveals it.</figcaption>
+  </figure>
+
+  <p>
+    The fix is <code>prometheus_client</code>'s multiprocess mode: with
+    <code>PROMETHEUS_MULTIPROC_DIR</code> set, every metric writes to a per-PID file, and
+    <code>/metrics</code> builds a <em>fresh</em> registry per request to merge them. The registry must
+    be rebuilt per scrape rather than once at startup, since its entire job is reading the current state
+    of every worker's file.
+  </p>
+  <p>
+    After the fix, forty requests produced exactly <code>40.0</code> on every repeated scrape &mdash;
+    cross-checked against the independently-computed <code>http_requests_total</code>, which also read 40.
+  </p>
+
+  <h3>Dashboards as files, not clicks</h3>
+  <p>
+    The Grafana datasource and an eight-panel dashboard are <strong>provisioned from files in the
+    repo</strong>. Anything created through the UI lives only in the container's internal database
+    &mdash; recreate the container and the work is gone, with nothing in version control recording it
+    existed. The datasource uid is pinned, because Grafana otherwise generates a random one per install
+    and every panel's reference breaks on a fresh machine.
+  </p>
+
+  <div class="callout">
+    <span class="tag">Verification, because dashboards fail silently</span>
+    <p>
+      A panel with a subtly wrong metric name renders as an empty chart that looks like &ldquo;nothing
+      is happening right now&rdquo;. So every panel's query was executed through Grafana's own
+      datasource proxy and checked for a non-empty result. Two came back empty &mdash; and both queries
+      were <em>correct</em>; the events they describe simply hadn't happened since the last restart.
+      Proven by deliberately generating the 401s and the idempotency replay they were waiting for.
+    </p>
+    <p>
+      One genuine bug did fall out: a <em>labelled</em> counter doesn't appear in the metrics output at
+      all until first incremented, so that panel read &ldquo;No data&rdquo; instead of <code>0</code> on
+      a fresh process. Fixed with <code>or vector(0)</code>.
+    </p>
+  </div>
+</section>
+
+<!-- ================= ACT VIII ================= -->
+<section id="harden" class="wrap act reveal">
+  <div class="act-head">
+    <span class="act-num">ACT VIII</span>
+    <h2>Hardening, by threat model</h2>
+  </div>
+  <p class="lede">Not every endpoint gets the same protection, because not every caller can keep a secret.</p>
+
+  <p>
+    The tempting move is &ldquo;add auth to everything&rdquo;. Working out why that is wrong is most of
+    the value here. Who actually calls each endpoint determines what can protect it:
+  </p>
+
+  <div class="tbl-scroll">
+    <table>
+      <thead><tr><th>Endpoint group</th><th>Real caller</th><th>Can hold a secret?</th><th>Protection</th></tr></thead>
+      <tbody>
+        <tr><td>Advertiser writes</td><td>An advertiser's backend</td><td class="win">Yes &mdash; server-side</td><td>API key + ownership checks</td></tr>
+        <tr><td>Auction &amp; tracking</td><td>End-user browsers</td><td class="loss">No &mdash; readable by anyone</td><td>Rate limiting, fraud heuristics</td></tr>
+        <tr><td>Analytics reads</td><td>The dashboard</td><td class="loss">Not meaningfully</td><td>Open &mdash; aggregate data only</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    A key embedded in browser JavaScript to &ldquo;protect&rdquo; a tracking pixel protects nothing,
+    while adding the false comfort of looking protected. That is why the split exists.
+  </p>
+
+  <h3>The hole that authentication actually closed</h3>
+  <p>
+    <code>POST /campaigns</code> took an <code>advertiser_id</code> in the request body and trusted it.
+    Any caller could create campaigns that spent against <em>someone else's</em> account. The fix is
+    structural rather than additive: the field was <strong>deleted entirely</strong>, so there is
+    nothing left to spoof, and ownership is derived from the authenticated key.
+  </p>
+  <p>
+    A test performs the actual attack &mdash; attacker's key, victim's id in the body &mdash; and
+    asserts the created campaign does not belong to the victim.
+  </p>
+  <p>
+    Targeting needed a second, genuinely different check. Authentication answers &ldquo;who are
+    you&rdquo;; it says nothing about whether <em>this</em> campaign is yours. A mismatch returns
+    <strong>404, not 403</strong> &mdash; a 403 would confirm the campaign exists and let an
+    authenticated advertiser enumerate competitors' ids by probing.
+  </p>
+
+  <div class="callout">
+    <span class="tag">Why SHA-256 here, when passwords need bcrypt</span>
+    <p>
+      A password is short, human-chosen, and drawn from a small realistic space, so password hashing is
+      deliberately <em>slow</em> to make each guess expensive. An API key from
+      <code>secrets.token_urlsafe(32)</code> is 256 bits of uniform randomness &mdash; there is no
+      dictionary and brute force is infeasible however fast the hash runs. Slowness buys nothing.
+    </p>
+    <p>
+      And a fast deterministic hash buys something bcrypt structurally cannot: the same key always
+      hashes to the same value, so authentication is <strong>one indexed lookup</strong> instead of
+      loading every advertiser and testing each salted hash in turn.
+    </p>
+  </div>
+
+  <h3>Rate limiting, and the one command that makes it safe</h3>
+  <p>
+    A fixed-window counter over Redis <code>INCR</code> &mdash; atomic, server-side, returning the new
+    value. Doing this as read-add-write in Python would be the exact lost-update shape fixed in Act V.
+    <strong>Third time that same lesson appeared in this project.</strong>
+  </p>
+  <p>
+    <code>EXPIRE</code> is applied only when the counter equals 1, on the request that created the key.
+    Re-applying it every request would slide the expiry forward continuously, silently turning the limit
+    into &ldquo;N requests ever&rdquo; rather than &ldquo;N per window&rdquo;.
+  </p>
+
+  <div class="verdict">
+    <div class="vbox after" style="border-color:var(--accent)"><span class="vk">120 requests, limit 100/10s</span><span class="vv" style="color:var(--ink)">first 429 at request <strong>101</strong><br>{200: 100, 429: 20}</span></div>
+    <div class="varrow">&rarr;</div>
+    <div class="vbox"><span class="vk">Known weakness, accepted</span><span class="vv" style="font-size:14px;color:var(--ink-2)">boundary bursting &mdash; 100 requests at 09:59.9 and 100 at 10:00.1 are both legal</span></div>
+  </div>
+
+  <h3>Idempotency: a gap the consumer structurally could not close</h3>
+  <p>
+    The Kafka consumer already deduplicates <em>redelivery of the same message</em>. It cannot
+    deduplicate an <strong>HTTP retry</strong>, and the reason is worth tracing: <code>record_click</code>
+    generates a fresh <code>uuid4()</code> per call. A client whose connection drops and retries
+    produces a genuinely <em>different</em> click id, publishes a genuinely different event, and the
+    consumer &mdash; correctly, by its own rules &mdash; writes both.
+  </p>
+  <p>
+    One real click, two recorded clicks. On an ad platform that is double-counted billing. The
+    information that these two events are &ldquo;the same operation&rdquo; exists only on the client,
+    which is why an <code>Idempotency-Key</code> header is the only layer that can fix it.
+  </p>
+
+  <h3>Click fraud: flagging, not blocking</h3>
+  <p>
+    A human who genuinely saw an ad cannot click it in 50 ms. Since the impression row is already loaded
+    for the 404 check, elapsed time is free to compute. Measured: a scripted click at
+    <strong>0.058 s</strong> was flagged; a click after a human-plausible pause at
+    <strong>1.271 s</strong> was not.
+  </p>
+  <p>
+    It deliberately <em>flags</em> rather than blocks. A single naive heuristic will have false
+    positives, and a false positive here means refusing a real user's real click &mdash; silently
+    under-reporting a campaign's performance and under-billing. Plenty of legitimate traffic is fast: a
+    pre-rendered page, a mis-tap, an accessibility tool, an aggressive prefetcher.
+  </p>
+
+  <div class="callout">
+    <span class="tag">A schema lesson this surfaced</span>
+    <p>
+      The consumer reads the new field as <code>event.get("suspicious", False)</code>, not
+      <code>event["suspicious"]</code>. Events produced <em>before</em> the heuristic existed are still
+      sitting in the Kafka topic and are still replayable &mdash; the whole point of a durable log. A
+      consumer that assumed every message matched the newest producer's schema would crash on its own
+      history.
+    </p>
+  </div>
+</section>
+
+<!-- ================= ACT IX ================= -->
+<section id="surface" class="wrap act reveal">
+  <div class="act-head">
+    <span class="act-num">ACT IX</span>
+    <h2>The surface</h2>
+  </div>
+  <p class="lede">A dashboard asks different questions than a REST resource API answers.</p>
+
+  <p>
+    Every existing endpoint was resource-shaped: <code>GET /campaigns</code> returns campaign rows. A
+    dashboard doesn't want rows, it wants <em>answers</em> &mdash; total impressions, best campaigns,
+    click-through rate. Building those from resource endpoints would mean the browser fetching 23,268
+    campaigns and 699,813 impressions to compute a number Postgres produces in one query.
+  </p>
+  <p>
+    So three aggregate endpoints exist specifically because a UI asks different questions. The summary
+    computes all eight totals as scalar subqueries inside a <em>single</em> <code>SELECT</code>, so the
+    header costs one round trip rather than eight. The top-campaigns query aggregates first and joins
+    the small results, because joining raw impressions to clicks and grouping afterwards would multiply
+    every impression row by that campaign's click rows before collapsing them again.
+  </p>
+
+  <h3>Two problems only visible by looking at the rendered page</h3>
+  <p>
+    <strong>The interest-weight chart cannot be zero-anchored.</strong> Every interest starts at exactly
+    1.0 and the largest real drift after live traffic is about <code>1.000012</code>. A bar chart
+    anchored at zero renders all ten bars at effectively full width &mdash; visually identical,
+    information content zero. The chart scales by <em>drift from 1.0</em> instead, with the baseline
+    stated in the panel so the axis isn't a lie.
+  </p>
+  <p>
+    <strong>The budget column needed a number, not just a bar.</strong> Real spend sits around 4% of
+    budget. A bar communicates &ldquo;how close to the cap&rdquo; well at 60% and communicates nothing at
+    4% &mdash; it renders as an invisible nub. The data was correct, the component was correct, and it
+    still conveyed nothing.
+  </p>
+
+  <div class="callout good">
+    <span class="tag">Proving live polling, which a screenshot cannot show</span>
+    <p>
+      With the page open and untouched, 25 real auctions were generated against the API from outside the
+      browser. The impressions counter moved from <strong>699,057 to 699,082</strong> &mdash; exactly
+      +25, with no page reload. That is the difference between a dashboard that reads live state and one
+      showing a cached first render.
+    </p>
+  </div>
+
+  <p>
+    Grafana and this dashboard both exist deliberately. Grafana is the <em>operational</em> view
+    &mdash; request rates, latency percentiles, error classes; it answers &ldquo;is the system
+    healthy?&rdquo;. The React dashboard is the <em>business</em> view &mdash; spend, CTR, campaign
+    performance, learned weights; it answers &ldquo;is the advertising working?&rdquo;. Merging them
+    would produce one dashboard serving neither audience.
+  </p>
+</section>
+
+<!-- ================= ACT X ================= -->
+<section id="reckoning" class="wrap act reveal">
+  <div class="act-head">
+    <span class="act-num">ACT X</span>
+    <h2>The reckoning</h2>
+  </div>
+  <p class="lede">Three steps of new features had been added. Nobody had measured what they cost.</p>
+
+  <p>
+    A feature run ends properly by measuring its own price, not by assuming it was free. Same
+    phase-bracket method as before, same host:
+  </p>
+
+  <div class="tbl-scroll">
+    <table>
+      <thead><tr><th>Phase</th><th class="num">Before</th><th class="num">After</th><th class="num">&Delta;</th></tr></thead>
+      <tbody>
+        <tr><td>get_user</td><td class="num">1.25 ms</td><td class="num">1.68 ms</td><td class="num">+0.43</td></tr>
+        <tr><td>filter</td><td class="num">1.87 ms</td><td class="num">2.47 ms</td><td class="num">+0.60</td></tr>
+        <tr><td>weights <span style="color:var(--ink-dim)">new</span></td><td class="num">&mdash;</td><td class="num">0.67 ms</td><td class="num loss">+0.67</td></tr>
+        <tr><td>pick</td><td class="num">0.04 ms</td><td class="num">0.13 ms</td><td class="num">+0.09</td></tr>
+        <tr><td>record</td><td class="num">45.23 ms</td><td class="num">46.50 ms</td><td class="num">+1.27</td></tr>
+        <tr><td><strong>total</strong></td><td class="num">48.15 ms</td><td class="num">51.59 ms</td><td class="num loss">+3.44</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    Net of the constant Windows artifact present in both measurements, real work went from ~4.2 ms to
+    ~7.6 ms &mdash; close to double, which is the honest headline even though the absolute numbers are
+    small. Each addition was then measured <em>in isolation</em> rather than blamed on the newest change:
+    +0.67 ms for the weights query, +0.60 ms of index write amplification, +0.41 ms for the rate-limit
+    check.
+  </p>
+
+  <div class="callout">
+    <span class="tag">Two rows that were NOT regressions</span>
+    <p>
+      <code>get_user</code> and <code>filter</code> grew by ~1 ms combined, but the candidate set was
+      essentially unchanged &mdash; 2,223 now against 2,226 before. It wasn't more data; the machine was
+      simply busier, now running Prometheus, Grafana, a Vite dev server and a Kafka consumer.
+      Attributing that to code would have been wrong, and checking the candidate count is what ruled it
+      out.
+    </p>
+  </div>
+
+  <h3>The reversal</h3>
+  <p>
+    Four foreign-key indexes had been added on the prediction that the new analytics queries would need
+    them. Measurement showed the dashboard's <code>GROUP BY</code> correctly <em>ignores</em> an index
+    &mdash; it reads every row regardless &mdash; while the indexes cost ~0.60 ms on every impression
+    insert, the hottest write in the system.
+  </p>
+  <p>
+    The first instinct was to keep them anyway, justified by foreign-key enforcement. Then
+    <code>pg_stat_user_indexes</code> was consulted, and it disagreed:
+  </p>
+
+  <div class="tbl-scroll">
+    <table>
+      <thead><tr><th>Index</th><th class="num">Times used</th><th>On the hot write path?</th><th>Verdict</th></tr></thead>
+      <tbody>
+        <tr><td><code>ix_clicks_impression_id</code></td><td class="num win">26</td><td>No &mdash; async consumer</td><td class="win">kept</td></tr>
+        <tr><td><code>ix_conversions_click_id</code></td><td class="num">0</td><td>No</td><td>kept &mdash; free</td></tr>
+        <tr><td><code>ix_impressions_campaign_id</code></td><td class="num loss">1</td><td class="loss">Yes</td><td class="loss">dropped</td></tr>
+        <tr><td><code>ix_impressions_user_id</code></td><td class="num loss">1</td><td class="loss">Yes</td><td class="loss">dropped</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    The only two indexes costing the auction hot path had been used exactly once each &mdash; by the
+    queries written to prove they <em>could</em> be used. The foreign-key argument was real but
+    hypothetical: nothing in this project deletes users or campaigns, and the per-campaign drill-down
+    endpoints that would use them do not exist. Insert cost after dropping them:
+    <strong>1.61 ms &rarr; 1.247 ms</strong>.
+  </p>
+
+  <div class="callout good">
+    <span class="tag">The process lesson, which is the bigger one</span>
+    <p>
+      One step added the indexes on a prediction. The next step's first draft kept them on a
+      plausible-sounding argument. Only <code>idx_scan</code> &mdash; <strong>a number, not an
+      argument</strong> &mdash; produced the right answer. The usage statistics existed the entire time
+      and would have skipped the whole round trip.
+    </p>
+    <p>
+      An index is infrastructure with a recurring cost on every write, and &ldquo;we might need it
+      later&rdquo; justifies it no better than it justifies a message queue.
+    </p>
+  </div>
+
+  <h3>A regression that wasn't latency at all</h3>
+  <p>
+    Rate limiting is 100 requests per 10 s <em>per IP</em>, and every request from Locust or the traffic
+    simulator originates from one machine &mdash; so the entire load generator shares one bucket. A
+    capacity sweep at 300 users would be almost entirely 429s, measuring the rate limiter rather than
+    the system. The simulator, which calls <code>raise_for_status()</code>, crashed outright on the
+    first one.
+  </p>
+  <p>
+    <strong>A protection mechanism working correctly can still invalidate your measurement tools.</strong>
+    The limit was made configurable rather than hardcoded, so a load test can raise it without editing
+    code.
+  </p>
+</section>
+
+<!-- ================= CLOSE ================= -->
+<section class="wrap act reveal">
+  <div class="act-head">
+    <span class="act-num">CLOSE</span>
+    <h2>What the record actually shows</h2>
+  </div>
+
+  <p class="lede">
+    The feature list is ordinary: an auction, a cache, a queue, some metrics, a dashboard. The part
+    that isn't ordinary is that four separate times, a well-reasoned decision was reversed by evidence
+    &mdash; and the reversals are still in the notes.
+  </p>
+
+  <div class="stats" style="margin-top:32px">
+    <div class="stat">
+      <span class="k">selectinload</span>
+      <span class="v" style="font-size:19px;color:var(--bad)">reversed</span>
+      <div class="n">right in theory, wrong at 2,263 rows</div>
+    </div>
+    <div class="stat">
+      <span class="k">ORM cache objects</span>
+      <span class="v" style="font-size:19px;color:var(--bad)">reversed</span>
+      <div class="n">convenience cost 88 ms of GIL per request</div>
+    </div>
+    <div class="stat">
+      <span class="k">The 44 ms stall</span>
+      <span class="v" style="font-size:19px;color:var(--bad)">disproved</span>
+      <div class="n">a laptop artifact, not a bottleneck</div>
+    </div>
+    <div class="stat">
+      <span class="k">FK indexes</span>
+      <span class="v" style="font-size:19px;color:var(--bad)">dropped</span>
+      <div class="n">usage stats beat the argument</div>
+    </div>
+  </div>
+
+  <h3>The measurement rules that came out of it</h3>
+  <ul class="tight">
+    <li><strong>Measure the dimension you actually care about.</strong> For a server that is throughput and tail latency under concurrent load &mdash; never the speed of one request in isolation.</li>
+    <li><strong>Check the rig before trusting the result.</strong> Two sections of conclusions were built on a number that was the load generator's ceiling, not the server's.</li>
+    <li><strong>Anything crossing a boundary production doesn't have is suspect.</strong> A Windows/Linux VM edge, a port-forwarder, a load generator sharing the server's CPU.</li>
+    <li><strong>Passing tests don't prove a race is fixed.</strong> Forced collision with a thread barrier does.</li>
+    <li><strong>Empty and broken look identical.</strong> A dashboard panel, a Prometheus series, a consumer that never runs &mdash; make the thing happen to tell them apart.</li>
+    <li><strong>Prefer the number over the argument.</strong> <code>idx_scan</code>, <code>redis-cli MONITOR</code>, <code>py-spy</code>, <code>EXPLAIN ANALYZE</code> &mdash; each one ended a debate that reasoning alone had gotten wrong.</li>
+  </ul>
+
+  <h3>Still open, and named rather than quietly dropped</h3>
+  <ul class="tight">
+    <li><strong>Horizontal scaling.</strong> Flagged since the first load tests, never built. Likely to move the bottleneck onto the single Postgres rather than remove it &mdash; which is the interesting part.</li>
+    <li><strong>The ML preference model.</strong> Genuinely blocked: it needs real click history, and there are 54 clicks.</li>
+    <li><strong>Signed impression tokens.</strong> The hardening work raised the cost of faking a click and made it visible. It did not close it.</li>
+    <li><strong>The new throughput ceiling.</strong> ~1,080&ndash;1,200 rps across every load level from 100 to 1,600 users, with tail latency rather than failures as the overload signal. The limiting resource has not been identified &mdash; and guessing was explicitly declined.</li>
+  </ul>
+</section>
+
+</main>
+
+<footer class="wrap">
+  AdServe engineering logbook &mdash; 31 investigations, every figure measured against a fixed baseline.
+  Reversals kept in place deliberately.
+</footer>
+
+<script>
+  (function () {
+    // Theme toggle — cycles system -> light -> dark. Wrapped because storage can throw.
+    var root = document.documentElement;
+    var btn = document.getElementById('themeToggle');
+    var order = ['', 'light', 'dark'];
+    var label = { '': 'theme: auto', 'light': 'theme: light', 'dark': 'theme: dark' };
+    var cur = '';
+    try { cur = localStorage.getItem('adserve-theme') || ''; } catch (e) { cur = ''; }
+    function apply(v) {
+      if (v) { root.setAttribute('data-theme', v); } else { root.removeAttribute('data-theme'); }
+      btn.textContent = label[v];
+    }
+    apply(cur);
+    btn.addEventListener('click', function () {
+      cur = order[(order.indexOf(cur) + 1) % order.length];
+      apply(cur);
+      try { localStorage.setItem('adserve-theme', cur); } catch (e) {}
+    });
+
+    // Rail nav active state. Anchors already work without this.
+    var links = Array.prototype.slice.call(document.querySelectorAll('.railnav a'));
+    var targets = links.map(function (a) { return document.querySelector(a.getAttribute('href')); });
+    if ('IntersectionObserver' in window) {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) {
+          if (!en.isIntersecting) return;
+          var i = targets.indexOf(en.target);
+          links.forEach(function (l, j) { l.classList.toggle('on', i === j); });
+        });
+      }, { rootMargin: '-45% 0px -50% 0px' });
+      targets.forEach(function (t) { if (t) io.observe(t); });
+    }
+  })();
+</script>
+
+</body>
+</html>
